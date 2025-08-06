@@ -361,23 +361,50 @@ alice_instructions = [
     "Responda diretamente usando conhecimento quando possível. Use busca_knowledge_base como primeira opção, busca_duckduckgo como segunda opção. Só ofereça transferência como último recurso.",
 ]
 
-alice_agent = Agent(
+
+# Função para transformar o contexto em texto dinâmico
+def contexto_para_texto(context: dict) -> str:
+    def sim_nao(val):
+        return "Sim" if val else "Não"
+    linhas = ["[CONTEXT]"]
+    if context.get("user_id"): linhas.append(f"Usuário: {context.get('user_id')}")
+    if context.get("contact_id"): linhas.append(f"Contact ID: {context.get('contact_id')}")
+    if context.get("conversation_id"): linhas.append(f"Conversation ID: {context.get('conversation_id')}")
+    if context.get("custom_attributes_city"): linhas.append(f"Cidade: {context.get('custom_attributes_city')}")
+    if context.get("custom_attributes_category"): linhas.append(f"Categoria: {context.get('custom_attributes_category')}")
+    if "CIDADE_JA_INFORMADA" in context:
+        linhas.append(f"Cidade já informada: {sim_nao(context.get('CIDADE_JA_INFORMADA'))}")
+    if "CATEGORIA_JA_INFORMADA" in context:
+        linhas.append(f"Categoria já informada: {sim_nao(context.get('CATEGORIA_JA_INFORMADA'))}")
+    linhas.append("[/CONTEXT]\n")
+    return "\n".join(linhas)
+
+# Wrapper para garantir que o prompt sempre começa com o contexto textual
+class AliceAgentWithContext(Agent):
+    def run(self, message, session_id=None, context=None, **kwargs):
+        context = context or {}
+        contexto_textual = contexto_para_texto(context)
+        # Junta contexto, instruções e mensagem do usuário
+        prompt = f"{contexto_textual}\n" + "\n".join(alice_instructions) + f"\n\nUsuário: {message}"
+        # Chama o modelo com o prompt montado
+        return super().run(message=prompt, session_id=session_id, context=context, **kwargs)
+
+alice_agent = AliceAgentWithContext(
     name="Alice",
-    model=OpenAIChat(id="gpt-4o", api_key=api_key),  # Mudança para gpt-4o padrão do Agno
+    model=OpenAIChat(id="gpt-4o", api_key=api_key),
     tools=[
-        busca_knowledge_base_tool,  # PRIMEIRA ferramenta: base local
+        busca_knowledge_base_tool,
         suporte_tool,
         cadastros_tool,
         duvidas_tool,
         atribui_cidade_tool,
         contato_categoria_tool,
-        busca_duckduckgo_tool  # SEGUNDA opção: busca externa
+        busca_duckduckgo_tool
     ],
     instructions=alice_instructions,
     storage=SqliteStorage(table_name="alice_agent", db_file=agent_storage),
-    # Memória simplificada - menos confusão para o LLM
     add_history_to_messages=True,
-    num_history_responses=3,  # Reduzido de 10 para 3
+    num_history_responses=3,
     markdown=True,
 )
 
