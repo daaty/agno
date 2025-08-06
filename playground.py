@@ -106,28 +106,96 @@ busca_duckduckgo_tool.__name__ = "busca_duckduckgo"
 os.makedirs("tmp", exist_ok=True)
 agent_storage = "tmp/agents.db"
 
+# --- Ferramenta de busca na base de conhecimento local ---
+def busca_knowledge_base_tool(query: str):
+    """
+    Busca na base de conhecimento local da Urban usando palavras-chave no título ou conteúdo.
+
+    Use esta ferramenta PRIMEIRO para responder perguntas sobre:
+    - Propósito da Urban
+    - Sistema de créditos
+    - Cadastro de motorista e passageiro
+    - Segurança
+    - Política de adesivos
+    - Área de atuação
+    - Categorias Popular e Ofereça seu Preço
+    - Qualquer informação específica da Urban
+    """
+    print(f"[LOG] busca_knowledge_base_tool chamado com query={query}")
+
+    try:
+        # Conecta na mesma tabela que o script de importação usa
+        storage = SqliteStorage(table_name="knowledge", db_file=agent_storage)
+
+        # Busca por palavras-chave no título ou conteúdo (case-insensitive)
+        query_lower = query.lower()
+        results = storage.read_sessions(
+            user_id=None,  # Não filtra por usuário
+            num_sessions=50  # Busca até 50 documentos
+        )
+
+        # Filtra resultados que contenham a query no título ou conteúdo
+        matches = []
+        for session in results:
+            session_data = session.session_data
+            title = session_data.get("title", "").lower()
+            content = session_data.get("content", "").lower()
+
+            if query_lower in title or query_lower in content:
+                matches.append({
+                    "title": session_data.get("title", ""),
+                    "content": session_data.get("content", "")
+                })
+
+        if matches:
+            print(f"[LOG] Encontrados {len(matches)} resultados na knowledge base")
+            # Retorna o primeiro resultado mais relevante
+            return {
+                "found": True,
+                "source": "knowledge_base",
+                "title": matches[0]["title"],
+                "content": matches[0]["content"]
+            }
+        else:
+            print(f"[LOG] Nenhum resultado encontrado na knowledge base para: {query}")
+            return {
+                "found": False,
+                "message": "Informação não encontrada na base de conhecimento local"
+            }
+
+    except Exception as e:
+        print(f"[ERRO] Erro ao buscar na knowledge base: {e}")
+        return {
+            "found": False,
+            "error": f"Erro na busca local: {str(e)}"
+        }
+
+busca_knowledge_base_tool.__name__ = "busca_knowledge_base"
+
 # INSTRUÇÕES SIMPLIFICADAS: Concisas e diretas como no n8n
 alice_instructions = [
     "Você é Alice, assistente virtual da Urban. Seja humana, calorosa e prestativa.",
     "SEMPRE use dados do contexto atual PRIMEIRO. Nunca pergunte informações já presentes no contexto.",
     "CIDADE: Se `custom_attributes_city` existir no contexto, NUNCA pergunte ou acione `atribui_a_cidade`.",
     "CATEGORIA: Se `custom_attributes_category` existir no contexto, NUNCA pergunte ou acione `contato_categoria`.",
-    "BUSCA INTELIGENTE: Se não souber responder, use `busca_duckduckgo` para horários de transporte, localizações, problemas técnicos ou informações sobre cidades antes de transferir.",
+    "CONHECIMENTO: SEMPRE consulte PRIMEIRO a base de conhecimento local usando `busca_knowledge_base` antes de qualquer outra ferramenta.",
+    "BUSCA INTELIGENTE: Se a base local não tiver a resposta, use `busca_duckduckgo` para horários de transporte, localizações, problemas técnicos ou informações sobre cidades.",
     "CRÍTICO: Para ferramentas de transferência, use o valor EXATO de conversation_id do contexto. Se o contexto mostra 'conversation_id': '107', use EXATAMENTE '107'. NUNCA use 'current_conversation_id' ou qualquer variável.",
     "CRÍTICO: Para ferramentas de atribuição, use o valor EXATO de contact_id do contexto. Se o contexto mostra 'contact_id': '10', use EXATAMENTE '10'.",
-    "Responda diretamente usando conhecimento quando possível. Use busca_duckduckgo como segunda opção. Só ofereça transferência como último recurso.",
+    "Responda diretamente usando conhecimento quando possível. Use busca_knowledge_base como primeira opção, busca_duckduckgo como segunda opção. Só ofereça transferência como último recurso.",
 ]
 
 alice_agent = Agent(
     name="Alice",
     model=OpenAIChat(id="gpt-4o", api_key=api_key),  # Mudança para gpt-4o padrão do Agno
     tools=[
+        busca_knowledge_base_tool,  # PRIMEIRA ferramenta: base local
         suporte_tool,
         cadastros_tool,
         duvidas_tool,
         atribui_cidade_tool,
         contato_categoria_tool,
-        busca_duckduckgo_tool
+        busca_duckduckgo_tool  # SEGUNDA opção: busca externa
     ],
     instructions=alice_instructions,
     storage=SqliteStorage(table_name="alice_agent", db_file=agent_storage),
@@ -214,9 +282,9 @@ class CustomPlayground(Playground):
             return {
                 "status": "healthy",
                 "agent": "Alice",
-                "tools": ["suporte", "cadastros", "duvidas", "atribui_a_cidade", "contato_categoria", "busca_duckduckgo"],
+                "tools": ["busca_knowledge_base", "suporte", "cadastros", "duvidas", "atribui_a_cidade", "contato_categoria", "busca_duckduckgo"],
                 "version": "2.0",
-                "features": ["chatwoot_integration", "duckduckgo_search", "intelligent_fallback"]
+                "features": ["chatwoot_integration", "knowledge_base", "duckduckgo_search", "intelligent_fallback"]
             }
 
         return app
