@@ -10,8 +10,9 @@ from agno.models.openai import OpenAIChat
 from agno.playground import Playground
 from agno.storage.sqlite import SqliteStorage
 
-# Importar configuração de logging
-from logging_config import logger
+# Configurar logging diretamente aqui para evitar problemas de importação
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Importe suas ferramentas customizadas
 from tools.suporte_tool import SuporteTool
