@@ -352,6 +352,7 @@ alice_instructions = [
     "EXEMPLO DE CONTEXTO QUE DEVE PERGUNTAR CATEGORIA: contexto = {'cidade_preenchida': True, 'categoria_preenchida': False, ...} → Pergunte apenas a categoria.",
     "CONHECIMENTO: SEMPRE consulte PRIMEIRO a base de conhecimento local usando `busca_knowledge_base` antes de qualquer outra ferramenta.",
     "BUSCA INTELIGENTE: Se a base local não tiver a resposta, use `busca_duckduckgo` para horários de transporte, localizações, problemas técnicos ou informações sobre cidades.",
+    "Ao usar a ferramenta busca_duckduckgo, sempre formule a query de forma descritiva e enciclopédica, incluindo contexto, unidade de medida ou idioma alternativo se necessário. Exemplo: 'altura da torre eiffel em metros', 'história da Urban', 'Eiffel Tower height in meters'. Se não houver resposta, tente uma variação mais detalhada ou em inglês.",
     "🔴 REGRA CRÍTICA DE IDs - USE SEMPRE AS VARIÁVEIS EXPLÍCITAS DO CONTEXTO:",
     "- Para ferramentas de transferência (suporte, cadastros, duvidas): use o valor de CONVERSATION_ID_ATUAL do contexto",
     "- Para ferramentas de atribuição (atribui_cidade, contato_categoria): use o valor de CONTACT_ID_ATUAL do contexto",
