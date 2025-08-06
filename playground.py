@@ -15,6 +15,7 @@ from tools.cadastros_tool import CadastrosTool
 from tools.duvidas_tool import DuvidasTool
 from tools.atribui_cidade_tool import AtribuiCidadeTool
 from tools.contato_categoria_tool import ContatoCategoriaTool
+from tools.duckduckgo_search_tool import duckduckgo_search
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -87,6 +88,20 @@ def contato_categoria_tool(input):
     return ContatoCategoriaTool().run(input)
 contato_categoria_tool.__name__ = "contato_categoria"
 
+def busca_duckduckgo_tool(query: str):
+    """
+    Ferramenta de busca DuckDuckGo para informações complementares.
+
+    Use quando:
+    - A base de conhecimento não tiver a resposta
+    - Usuário perguntar sobre horários de transporte, localizações específicas
+    - Problemas técnicos que precisam de soluções atualizadas
+    - Informações sobre cidades específicas da região
+    """
+    print(f"[LOG] busca_duckduckgo_tool chamado com query={query}")
+    return duckduckgo_search(query)
+busca_duckduckgo_tool.__name__ = "busca_duckduckgo"
+
 # --- Configuração do Agente ---
 os.makedirs("tmp", exist_ok=True)
 agent_storage = "tmp/agents.db"
@@ -97,9 +112,10 @@ alice_instructions = [
     "SEMPRE use dados do contexto atual PRIMEIRO. Nunca pergunte informações já presentes no contexto.",
     "CIDADE: Se `custom_attributes_city` existir no contexto, NUNCA pergunte ou acione `atribui_a_cidade`.",
     "CATEGORIA: Se `custom_attributes_category` existir no contexto, NUNCA pergunte ou acione `contato_categoria`.",
+    "BUSCA INTELIGENTE: Se não souber responder, use `busca_duckduckgo` para horários de transporte, localizações, problemas técnicos ou informações sobre cidades antes de transferir.",
     "CRÍTICO: Para ferramentas de transferência, use o valor EXATO de conversation_id do contexto. Se o contexto mostra 'conversation_id': '107', use EXATAMENTE '107'. NUNCA use 'current_conversation_id' ou qualquer variável.",
     "CRÍTICO: Para ferramentas de atribuição, use o valor EXATO de contact_id do contexto. Se o contexto mostra 'contact_id': '10', use EXATAMENTE '10'.",
-    "Responda diretamente usando conhecimento quando possível. Só ofereça transferência se não souber ou usuário pedir.",
+    "Responda diretamente usando conhecimento quando possível. Use busca_duckduckgo como segunda opção. Só ofereça transferência como último recurso.",
 ]
 
 alice_agent = Agent(
@@ -110,7 +126,8 @@ alice_agent = Agent(
         cadastros_tool,
         duvidas_tool,
         atribui_cidade_tool,
-        contato_categoria_tool
+        contato_categoria_tool,
+        busca_duckduckgo_tool
     ],
     instructions=alice_instructions,
     storage=SqliteStorage(table_name="alice_agent", db_file=agent_storage),
