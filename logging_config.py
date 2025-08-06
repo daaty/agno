@@ -5,7 +5,14 @@ Configuração de logging para produção no EasyPanel
 import logging
 import sys
 import os
-from python_json_logger import jsonlogger
+
+# Tentar importar pythonjsonlogger, mas não quebrar se não estiver disponível
+try:
+    from pythonjsonlogger import jsonlogger
+    HAS_JSON_LOGGER = True
+except ImportError:
+    HAS_JSON_LOGGER = False
+    print("AVISO: pythonjsonlogger não disponível. Usando formato de log simples.")
 
 def setup_logging():
     """
@@ -15,13 +22,13 @@ def setup_logging():
     log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
 
     # Formato estruturado para produção
-    if os.getenv('ENVIRONMENT') == 'production':
+    if HAS_JSON_LOGGER and os.getenv('ENVIRONMENT') == 'production':
         # JSON logs para produção
         formatter = jsonlogger.JsonFormatter(
             '%(asctime)s %(name)s %(levelname)s %(message)s'
         )
     else:
-        # Formato simples para desenvolvimento
+        # Formato simples para desenvolvimento ou quando JSON logger não está disponível
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )

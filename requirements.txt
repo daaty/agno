@@ -23,7 +23,7 @@ python-dotenv>=1.0.0
 pydantic>=2.5.0
 
 # Logs e monitoramento
-python-json-logger>=2.0.0
+pythonjsonlogger>=2.0.0
 
 # HTTP Requests internos (já incluído no Python, mas explícito para documentação)
 # urllib3>=2.0.0  # Já incluído no Python padrão
