@@ -129,11 +129,17 @@ def busca_knowledge_base_tool(query: str):
 
         # Busca por palavras-chave no título ou conteúdo (case-insensitive)
         query_lower = query.lower()
+        print(f"[DEBUG] Query convertida para lowercase: {query_lower}")
+
+        # Cria uma lista de palavras-chave da query para busca mais flexível
+        keywords = [word.strip() for word in query_lower.split() if len(word.strip()) > 2]
+        print(f"[DEBUG] Palavras-chave extraídas: {keywords}")
 
         # Usa o método get_all_sessions do SqliteStorage
         all_sessions = storage.get_all_sessions()
+        print(f"[DEBUG] Total de sessões encontradas: {len(all_sessions) if all_sessions else 0}")
 
-        # Filtra resultados que contenham a query no título ou conteúdo
+        # Filtra resultados que contenham qualquer palavra-chave no título ou conteúdo
         matches = []
         for session in all_sessions:
             if hasattr(session, 'session_data') and session.session_data:
@@ -141,23 +147,48 @@ def busca_knowledge_base_tool(query: str):
                 title = session_data.get("title", "").lower()
                 content = session_data.get("content", "").lower()
 
-                if query_lower in title or query_lower in content:
+                # Busca flexível: se qualquer palavra-chave estiver no título ou conteúdo
+                match_found = False
+                match_reasons = []
+                
+                for keyword in keywords:
+                    if keyword in title:
+                        match_found = True
+                        match_reasons.append(f"'{keyword}' no título")
+                    elif keyword in content:
+                        match_found = True
+                        match_reasons.append(f"'{keyword}' no conteúdo")
+                
+                if match_found:
+                    print(f"[DEBUG] MATCH encontrado! Título: '{session_data.get('title', '')}', Razões: {match_reasons}")
+                    # Calcula relevância baseada no número de matches
+                    relevance = len(match_reasons)
                     matches.append({
                         "title": session_data.get("title", ""),
-                        "content": session_data.get("content", "")
+                        "content": session_data.get("content", ""),
+                        "relevance": relevance,
+                        "match_reasons": match_reasons
                     })
+
+        # Ordena por relevância (mais matches primeiro)
+        matches.sort(key=lambda x: x["relevance"], reverse=True)
+        print(f"[DEBUG] Total de matches encontrados: {len(matches)}")
 
         if matches:
             print(f"[LOG] Encontrados {len(matches)} resultados na knowledge base")
-            # Retorna o primeiro resultado mais relevante
+            best_match = matches[0]
+            print(f"[LOG] Melhor resultado: '{best_match['title']}' (relevância: {best_match['relevance']})")
+            # Retorna o resultado mais relevante
             return {
                 "found": True,
                 "source": "knowledge_base",
-                "title": matches[0]["title"],
-                "content": matches[0]["content"]
+                "title": best_match["title"],
+                "content": best_match["content"],
+                "relevance": best_match["relevance"]
             }
         else:
             print(f"[LOG] Nenhum resultado encontrado na knowledge base para: {query}")
+            print(f"[DEBUG] Tentativa com palavras-chave: {keywords}")
             return {
                 "found": False,
                 "message": "Informação não encontrada na base de conhecimento local"
@@ -165,6 +196,8 @@ def busca_knowledge_base_tool(query: str):
 
     except Exception as e:
         print(f"[ERRO] Erro ao buscar na knowledge base: {e}")
+        import traceback
+        print(f"[ERRO] Traceback completo: {traceback.format_exc()}")
         return {
             "found": False,
             "error": f"Erro na busca local: {str(e)}"
