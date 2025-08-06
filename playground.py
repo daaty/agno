@@ -115,9 +115,22 @@ def atribui_cidade_tool(contact_id: str, cidade: str):
     return AtribuiCidadeTool().run({"contact_id": contact_id, "cidade": cidade_final})
 atribui_cidade_tool.__name__ = "atribui_a_cidade"
 
-def contato_categoria_tool(input):
-    """Ferramenta para atualizar o atributo 'categoria' de um contato no Chatwoot."""
-    return ContatoCategoriaTool().run(input)
+def contato_categoria_tool(contact_id: str, categoria: str):
+    """Ferramenta para atribuir categoria de atendimento ao contato no Chatwoot. Aceita apenas 'Passageiro' ou 'Motorista'. Requer 'contact_id' e 'categoria'."""
+    print(f"[LOG] contato_categoria_tool chamado com contact_id={contact_id}, categoria={categoria}")
+
+    # VALIDAÇÃO CRÍTICA: Só aceita categorias válidas
+    categorias_validas = ["Passageiro", "Motorista"]
+    if categoria not in categorias_validas:
+        print(f"[ERRO] Categoria inválida: {categoria}. Use apenas: {categorias_validas}")
+        return f"Categoria inválida: {categoria}. Use apenas: Passageiro ou Motorista."
+
+    # VALIDAÇÃO CRÍTICA: contact_id deve ser válido
+    if not contact_id or not contact_id.isdigit():
+        print(f"[ERRO] contact_id inválido: {contact_id}. Bloqueando chamada.")
+        return f"contact_id inválido: {contact_id}. Use o valor EXATO do contexto."
+
+    return ContatoCategoriaTool().run({"contact_id": contact_id, "categoria": categoria})
 contato_categoria_tool.__name__ = "contato_categoria"
 
 def busca_duckduckgo_tool(query: str):
@@ -324,7 +337,11 @@ alice_instructions = [
     "Você é Alice, assistente virtual da Urban. Seja humana, calorosa e prestativa.",
     "SEMPRE use dados do contexto atual PRIMEIRO. Nunca pergunte informações já presentes no contexto.",
     "CIDADE: Só considere que `custom_attributes_city` existe se for preenchido (não vazio, não None, não só espaços). Se estiver vazio, pergunte a cidade normalmente.",
-    "CATEGORIA: Se `custom_attributes_category` existir no contexto, NUNCA pergunte ou acione `contato_categoria`.",
+    "CATEGORIA: Só considere que `custom_attributes_category` existe se for preenchido (não vazio, não None, não só espaços). Se estiver vazio, pergunte a categoria APENAS depois de processar a cidade.",
+    "CATEGORIZAÇÃO SEQUENCIAL: REGRA DE OURO - Pergunte UMA coisa por vez:",
+    "1. Se `custom_attributes_city` estiver vazio: Responda a pergunta + pergunte APENAS a cidade. Exemplo: 'A Torre Eiffel tem 324 metros. Agora me diz aí, de qual cidade você está falando?'",
+    "2. Se `custom_attributes_category` estiver vazio E a cidade já foi processada: Pergunte APENAS a categoria. Exemplo: 'Seu atendimento é como Passageiro ou Motorista?'",
+    "3. NUNCA faça as duas perguntas na mesma mensagem. Sempre uma por vez, em sequência.",
     "CONHECIMENTO: SEMPRE consulte PRIMEIRO a base de conhecimento local usando `busca_knowledge_base` antes de qualquer outra ferramenta.",
     "BUSCA INTELIGENTE: Se a base local não tiver a resposta, use `busca_duckduckgo` para horários de transporte, localizações, problemas técnicos ou informações sobre cidades.",
     "CRÍTICO: Para ferramentas de transferência, use o valor EXATO de conversation_id do contexto. Se o contexto mostra 'conversation_id': '107', use EXATAMENTE '107'. NUNCA use 'current_conversation_id' ou qualquer variável.",
