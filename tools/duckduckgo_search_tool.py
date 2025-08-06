@@ -67,10 +67,35 @@ def duckduckgo_search(query: str) -> Dict[str, Any]:
 
         # Log do resultado
         info_found = result.get('abstract') or result.get('instant_answer') or result.get('definition')
-        if info_found:
-            print(f"[DuckDuckGo] Resultado encontrado: {str(info_found)[:100]}...")
+        has_related = result.get('related_topics') and len(result['related_topics']) > 0
+
+        if info_found or has_related:
+            print(f"[DuckDuckGo] Resultado encontrado: {str(info_found or 'Tópicos relacionados')[:100]}...")
+            # Adiciona campo results para compatibilidade
+            result["results"] = []
+            if info_found:
+                result["results"].append({
+                    "title": "Informação Principal",
+                    "content": info_found,
+                    "url": result.get('abstract_url', '')
+                })
+            # Adiciona tópicos relacionados como resultados
+            for topic in result.get('related_topics', []):
+                result["results"].append({
+                    "title": topic.get('text', '').split(' - ')[0],
+                    "content": topic.get('text', ''),
+                    "url": topic.get('url', '')
+                })
         else:
             print("[DuckDuckGo] Nenhuma resposta específica encontrada")
+
+        # Adiciona um resumo melhor
+        if result.get('abstract'):
+            result["summary"] = result['abstract'][:200] + "..." if len(result['abstract']) > 200 else result['abstract']
+        elif result.get('related_topics'):
+            result["summary"] = f"Encontrei {len(result['related_topics'])} tópicos relacionados sobre '{query}'"
+        else:
+            result["summary"] = f"Busca por '{query}' não retornou resultados específicos"
 
         return result
 
