@@ -346,10 +346,14 @@ alice_instructions = [
     "EXEMPLOS DE CUMPRIMENTO CORRETO: 'Bom dia! Como posso ajudar você hoje? Só preciso saber, de qual cidade você está falando?' ou 'Sinto muito por isso, estou aqui para ajudar! Só preciso saber, de qual cidade você está falando?'",
     "CONHECIMENTO: SEMPRE consulte PRIMEIRO a base de conhecimento local usando `busca_knowledge_base` antes de qualquer outra ferramenta.",
     "BUSCA INTELIGENTE: Se a base local não tiver a resposta, use `busca_duckduckgo` para horários de transporte, localizações, problemas técnicos ou informações sobre cidades.",
-    "CRÍTICO: Para ferramentas de transferência, use o valor EXATO de conversation_id do contexto. Se o contexto mostra 'conversation_id': '107', use EXATAMENTE '107'. NUNCA use 'current_conversation_id' ou qualquer variável.",
-    "CRÍTICO: Para ferramentas de atribuição, use o valor EXATO de contact_id do contexto. Se o contexto mostra 'contact_id': '10', use EXATAMENTE '10'.",
+    "🔴 REGRA CRÍTICA DE IDs - USE SEMPRE AS VARIÁVEIS EXPLÍCITAS DO CONTEXTO:",
+    "- Para ferramentas de transferência (suporte, cadastros, duvidas): use o valor de CONVERSATION_ID_ATUAL do contexto",
+    "- Para ferramentas de atribuição (atribui_cidade, contato_categoria): use o valor de CONTACT_ID_ATUAL do contexto",
+    "- EXEMPLO CORRETO: Se CONVERSATION_ID_ATUAL='112', use suporte_tool(conversation_id='112')",
+    "- EXEMPLO CORRETO: Se CONTACT_ID_ATUAL='10', use atribui_cidade_tool(contact_id='10', cidade='Matupa')",
+    "- NUNCA invente IDs, NUNCA use valores de exemplo, SEMPRE pegue de CONVERSATION_ID_ATUAL e CONTACT_ID_ATUAL",
     "ATRIBUIÇÃO DE CIDADE - REGRA CRÍTICA: Para atribuir cidade, use APENAS os nomes EXATOS desta lista (sem acento, primeira letra maiúscula): Matupa, Guaranta, Peixoto, Monte Verde, Bandeirantes, Alta Floresta, Nova Canaa, Colider. Se usuário disser variações como 'Matupá', 'peixoto', 'alta floresta', normalize para o nome EXATO da lista (Matupa, Peixoto, Alta Floresta). NUNCA use nomes diferentes desta lista.",
-    "FORMATO CIDADE: Sempre use atribui_cidade_tool(contact_id='10', cidade='Matupa') com nome EXATO da lista, nunca use JSON ou outros formatos.",
+    "FORMATO CIDADE: Sempre use atribui_cidade_tool(contact_id=CONTACT_ID_ATUAL, cidade='Matupa') com nome EXATO da lista, nunca use JSON ou outros formatos.",
     "Responda diretamente usando conhecimento quando possível. Use busca_knowledge_base como primeira opção, busca_duckduckgo como segunda opção. Só ofereça transferência como último recurso.",
 ]
 
@@ -407,16 +411,30 @@ class CustomPlayground(Playground):
             if not agent:
                 return {"error": f"Agent with ID '{agent_id}' not found."}
 
+            # EXTRAÇÃO CRÍTICA: Quebra payload em variáveis explícitas para garantir uso correto
+            current_conversation_id = payload.conversation_id
+            current_contact_id = payload.contact_id
+            current_user_id = payload.user_id
+            current_city = payload.custom_attributes_city
+            current_category = payload.custom_attributes_category
+
             context = {
-                "user_id": payload.user_id,
-                "contact_id": payload.contact_id,
+                "user_id": current_user_id,
+                "contact_id": current_contact_id,
                 # CORREÇÃO: Usa .model_dump() para ser compatível com Pydantic v2
                 "dados_emocao": payload.dados_emocao.model_dump() if payload.dados_emocao else None,
-                "conversation_id": payload.conversation_id,
-                "custom_attributes_city": payload.custom_attributes_city,
-                "custom_attributes_category": payload.custom_attributes_category,
+                "conversation_id": current_conversation_id,
+                "custom_attributes_city": current_city,
+                "custom_attributes_category": current_category,
+                # VARIÁVEIS EXPLÍCITAS: Para garantir que o agente sempre use os valores corretos
+                "CONVERSATION_ID_ATUAL": current_conversation_id,
+                "CONTACT_ID_ATUAL": current_contact_id,
+                "USER_ID_ATUAL": current_user_id,
+                "CIDADE_ATUAL": current_city,
+                "CATEGORIA_ATUAL": current_category,
             }
             print(f"[LOG] Contexto recebido no endpoint: {context}")
+            print(f"[DEBUG] Variáveis extraídas: conversation_id={current_conversation_id}, contact_id={current_contact_id}")
 
             result = agent.run(
                 message=payload.message,
