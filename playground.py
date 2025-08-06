@@ -106,6 +106,90 @@ busca_duckduckgo_tool.__name__ = "busca_duckduckgo"
 os.makedirs("tmp", exist_ok=True)
 agent_storage = "tmp/agents.db"
 
+# --- INICIALIZAÇÃO AUTOMÁTICA DA BASE DE CONHECIMENTO ---
+def ensure_knowledge_base_startup():
+    """
+    Garante que a base de conhecimento esteja populada na inicialização.
+    Crítico para deployment em produção onde o banco pode estar vazio.
+    """
+    print(f"[STARTUP] Verificando base de conhecimento...")
+
+    try:
+        # Verifica se já existe dados na base
+        storage = SqliteStorage(table_name="knowledge", db_file=agent_storage)
+        existing_sessions = storage.get_all_sessions()
+
+        if existing_sessions and len(existing_sessions) > 0:
+            print(f"[STARTUP] ✅ Base de conhecimento OK com {len(existing_sessions)} documentos")
+            return True
+
+        print(f"[STARTUP] ⚠️  Base de conhecimento vazia. Importando dados...")
+
+        # Importa dados do knowledge_base.md
+        knowledge_file = "knowledge_base.md"
+        if not os.path.exists(knowledge_file):
+            print(f"[STARTUP] ❌ Arquivo knowledge_base.md não encontrado")
+            return False
+
+        # Lê e processa o arquivo markdown
+        with open(knowledge_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Divide por seções usando o padrão # Título
+        from agno.storage.session.agent import AgentSession
+
+        sections = []
+        current_section = {"title": "", "content": ""}
+
+        for line in content.split('\n'):
+            if line.startswith('# ') and not line.startswith('##'):
+                # Nova seção encontrada
+                if current_section["title"]:  # Salva seção anterior se existir
+                    sections.append(current_section)
+                current_section = {
+                    "title": line[2:].strip(),  # Remove '# '
+                    "content": ""
+                }
+            else:
+                # Adiciona linha ao conteúdo da seção atual
+                current_section["content"] += line + '\n'
+
+        # Adiciona a última seção
+        if current_section["title"]:
+            sections.append(current_section)
+
+        # Insere seções no banco usando AgentSession
+        for i, section in enumerate(sections):
+            if section["title"] and section["content"].strip():
+                session = AgentSession(
+                    session_id=f"kb_{i+1}",
+                    agent_id="knowledge_base",
+                    user_id="system"
+                )
+
+                # Armazena os dados da seção no session_data
+                session.session_data = {
+                    "title": section["title"],
+                    "content": section["content"].strip()
+                }
+
+                storage.upsert(session)
+
+        # Verifica se a importação funcionou
+        final_sessions = storage.get_all_sessions()
+        print(f"[STARTUP] ✅ Base de conhecimento importada! {len(final_sessions)} documentos inseridos.")
+
+        return True
+
+    except Exception as e:
+        print(f"[STARTUP] ❌ Erro ao garantir base de conhecimento: {e}")
+        import traceback
+        print(f"[STARTUP] Traceback: {traceback.format_exc()}")
+        return False
+
+# Executa a verificação da base de conhecimento na inicialização
+ensure_knowledge_base_startup()
+
 # --- Ferramenta de busca na base de conhecimento local ---
 def busca_knowledge_base_tool(query: str):
     """
@@ -150,7 +234,7 @@ def busca_knowledge_base_tool(query: str):
                 # Busca flexível: se qualquer palavra-chave estiver no título ou conteúdo
                 match_found = False
                 match_reasons = []
-                
+
                 for keyword in keywords:
                     if keyword in title:
                         match_found = True
@@ -158,7 +242,7 @@ def busca_knowledge_base_tool(query: str):
                     elif keyword in content:
                         match_found = True
                         match_reasons.append(f"'{keyword}' no conteúdo")
-                
+
                 if match_found:
                     print(f"[DEBUG] MATCH encontrado! Título: '{session_data.get('title', '')}', Razões: {match_reasons}")
                     # Calcula relevância baseada no número de matches
@@ -317,6 +401,70 @@ class CustomPlayground(Playground):
                 "version": "2.0",
                 "features": ["chatwoot_integration", "knowledge_base", "duckduckgo_search", "intelligent_fallback"]
             }
+
+        @app.get("/debug/knowledge", tags=["Debug"])
+        def debug_knowledge_base():
+            """Debug endpoint para verificar status da base de conhecimento"""
+            try:
+                storage = SqliteStorage(table_name="knowledge", db_file=agent_storage)
+                sessions = storage.get_all_sessions()
+
+                if not sessions:
+                    return {
+                        "status": "empty",
+                        "count": 0,
+                        "titles": [],
+                        "message": "Base de conhecimento vazia"
+                    }
+
+                titles = []
+                for session in sessions:
+                    if hasattr(session, 'session_data') and session.session_data:
+                        title = session.session_data.get("title", "Sem título")
+                        titles.append(title)
+
+                return {
+                    "status": "populated",
+                    "count": len(sessions),
+                    "titles": titles,
+                    "message": f"Base de conhecimento com {len(sessions)} documentos"
+                }
+
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "count": 0,
+                    "titles": [],
+                    "error": str(e),
+                    "message": f"Erro ao acessar base de conhecimento: {e}"
+                }
+
+        @app.post("/debug/reload-knowledge", tags=["Debug"])
+        def reload_knowledge_base():
+            """Força recarregamento da base de conhecimento"""
+            try:
+                result = ensure_knowledge_base_startup()
+                if result:
+                    storage = SqliteStorage(table_name="knowledge", db_file=agent_storage)
+                    sessions = storage.get_all_sessions()
+                    return {
+                        "status": "success",
+                        "count": len(sessions) if sessions else 0,
+                        "message": f"Base de conhecimento recarregada com {len(sessions) if sessions else 0} documentos"
+                    }
+                else:
+                    return {
+                        "status": "failed",
+                        "count": 0,
+                        "message": "Falha ao recarregar base de conhecimento"
+                    }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "count": 0,
+                    "error": str(e),
+                    "message": f"Erro ao recarregar: {e}"
+                }
 
         return app
 
