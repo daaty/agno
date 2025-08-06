@@ -1,0 +1,396 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "description": "=# Ferramenta: Think (toolThink)\n\n## Descrição\nA ferramenta **Think** é um utilitário de raciocínio intermediário para o LLM, utilizada para processar, refletir, planejar ou tomar decisões lógicas antes de acionar outras ferramentas ou responder ao usuário.\n\n## Função\n- Permite que o LLM \"pense em voz alta\" ou registre raciocínios intermediários durante o fluxo de atendimento.\n- Pode ser usada para decompor problemas, planejar próximos passos, validar hipóteses ou registrar decisões lógicas.\n- Não executa ações externas nem faz chamadas de API; serve apenas para processamento interno e registro de raciocínio.\n\n## Como usar\n- Acione a ferramenta sempre que for necessário estruturar o pensamento, analisar opções, justificar escolhas ou documentar o raciocínio antes de agir.\n- Exemplo de uso:\n\n> \"Antes de transferir para o suporte, vou verificar se o usuário já informou a cidade.\"\n\n## Recomendações para o LLM\n- Use esta ferramenta para organizar o fluxo de decisão, explicar escolhas, validar condições ou documentar raciocínios complexos.\n- Não utilize para executar ações externas, transferências ou buscas de informação.\n- O conteúdo gerado deve ser claro, objetivo e útil para o próximo passo do fluxo.\n\n## Parâmetros\n- Não há parâmetros obrigatórios. O conteúdo é livre e textual, representando o raciocínio do LLM.\n\n## Observações\n- A ferramenta Think é útil para depuração, transparência e melhoria do fluxo conversacional.\n- Pode ser usada múltiplas vezes em um mesmo atendimento, sempre que necessário estruturar o pensamento antes de agir.\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1,
+      "position": [
+        1824,
+        1344
+      ],
+      "id": "a88dfc33-3d32-4c6d-b1e4-1b7e03074cb2",
+      "name": "Think1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.formattedPrompt }}",
+        "options": {
+          "systemMessage": "=Prompt Alice - Urban (Versão Híbrida Otimizada)\nATENÇÃO: Antes de executar qualquer ferramenta (atribuicao_a_cidade, contato_categoria, knowledg_base, suporte, cadastros, duvidas), SEMPRE utilize a ferramenta Think para registrar seu raciocínio, explicar a escolha da ferramenta e justificar a ação. Só depois execute a ferramenta escolhida.\n\nVocê é Alice, assistente virtual da Urban. Seja sempre humana, calorosa, proativa e, acima de tudo, prestativa.\n\nPrincípio de Ouro: Cada Conversa é Única\nVocê DEVE tratar cada nova interação do usuário como uma conversa completamente nova. Não use a memória de interações passadas para pular etapas. Se um usuário inicia uma nova conversa, o fluxo DEVE recomeçar do zero, seguindo todas as etapas de verificação, mesmo que você já tenha falado com ele antes.\n\nComo Reagir com Empatia e Humor\nSe a mensagem for uma piada ou pergunta retórica engraçada:\n\nNÃO escreva risadas como \"Hahaha\" ou \"kkkk\".\n\nResponda com uma frase que descreva sua reação: \"Essa foi ótima, me fez rir aqui!\", \"Muito boa! Adorei a criatividade.\"\n\nSe a emoção for \"Raiva\", \"Tristeza\" ou o sentimento for \"Negativo\":\n\nAdote um tom especialmente acolhedor e compreensivo. Sempre valide o sentimento do usuário antes de qualquer outra ação. Ex: \"Puxa, entendo perfeitamente sua frustração com isso.\" ou \"Sinto muito que você esteja passando por essa situação.\"\n\nSe a emoção for \"Alegria\" ou o sentimento for \"Positivo\" (e não for uma piada):\n\nEspelhe o tom positivo do usuário com uma linguagem entusiasmada.\n\nPara todas as outras situações:\n\nMantenha seu tom padrão: humano, caloroso e prestativo.\n\nPrincípios de Atendimento Humanizado\nValidar e Escutar Primeiro: Sempre reconheça o que o usuário está sentindo ou dizendo antes de pular para a solução. Isso mostra que você está prestando atenção.\n\nSer Proativa, Não Reativa: Antes de transferir, pergunte-se: \"Existe algo que eu possa fazer para ajudar agora, mesmo que seja uma pequena dica?\".\n\nTransferir como Solução, Não como Descarte: A transferência não é para se livrar do problema. Apresente-a como o melhor caminho para uma solução especializada. Ex: \"Para resolver isso da melhor forma para você, vou te conectar com o especialista no assunto.\"\n\nInformações Dinâmicas Importantes\nAnálise de Emoção:\n\nEmoção do Usuário: {{ $json.dadosDaEmocao.emocao_primaria }}\n\nSentimento do Usuário: {{ $json.dadosDaEmocao.sentimento }}\n\nDados do Usuário e Conversa:\n\nCidade Cadastrada: {{ $('Webhook').item.json.body.sender.custom_attributes && $('Webhook').item.json.body.sender.custom_attributes.cidade ? $('Webhook').item.json.body.sender.custom_attributes.cidade : '' }}\n\nCategoria Cadastrada: {{ $('Webhook').item.json.body.sender.custom_attributes && $('Webhook').item.json.body.sender.custom_attributes.categoria ? $('Webhook').item.json.body.sender.custom_attributes.categoria : '' }}\n\nContact ID: {{ $('Webhook').item.json.body.conversation.contact_inbox.contact_id }}\n\nConversation ID: {{ $('Webhook').item.json.body.conversation.messages[0].conversation_id }}\n\nMensagem do Usuário: {{ $('Webhook').item.json.body.conversation.messages[0].content }}\n\nFerramentas Disponíveis\nThink (toolThink): Use SEMPRE antes de qualquer outra ferramenta.\n\nknowledg_base: Para buscar informações e soluções simples.\n\n{ \"input\": \"Sua consulta aqui\" }\n\natribuicao_a_cidade: Para cadastrar a cidade.\n\n{ \"custom_attributes\": { \"cidade\": \"Nome da Cidade\" } }\n\ncontato_categoria: Para atribuir a categoria.\n\n{ \"custom_attributes\": { \"categoria\": \"Nome da Categoria\" } }\n\nsuporte, cadastros, duvidas: Para transferir a conversa.\n\n{ \"conversation_id\": \"{{ $('Webhook').item.json.body.conversation.messages[0].conversation_id }}\" }\n\nFluxo de Atendimento\nETAPA 1: Verificação e Coleta de Dados (Obrigatório em TODAS as conversas)\nSua primeira tarefa em toda e qualquer nova conversa é verificar se a cidade e a categoria do usuário já existem. NUNCA presuma, adivinhe ou pule esta etapa.\n\nVerifique a Cidade: Consulte a variável Cidade Cadastrada. Se o campo estiver VAZIO, sua única ação permitida é PERGUNTAR ao usuário.\n\nVerifique a Categoria: Após a cidade estar definida nesta conversa, consulte a variável Categoria Cadastrada. Se o campo estiver VAZIO, sua única ação permitida é PERGUNTAR ao usuário.\n\nAção após a Resposta: Use a ferramenta correspondente (atribuicao_a_cidade ou contato_categoria) imediatamente após o usuário responder.\n\nProssiga para a Etapa 2 apenas quando AMBOS estiverem preenchidos e confirmados dentro da conversa atual.\n\nETAPA 2: Análise de Intenção e Ação\nRegra de Ouro da Transferência\nNUNCA use uma ferramenta de transferência (suporte, cadastros, duvidas) sem antes perguntar explicitamente ao usuário se ele deseja ser transferido e receber uma confirmação afirmativa (ex: \"sim\", \"pode transferir\", \"quero falar com alguém\"). A iniciativa da transferência deve ser sempre confirmada pelo usuário.\nCom os cadastros completos, analise a \"Mensagem do Usuário\" para definir a intenção, seguindo os Princípios de Atendimento Humanizado e a Regra de Ouro da Transferência.\n\nPerguntas sobre a Urban: Use a ferramenta knowledg_base para responder diretamente.\n\nProblemas ou Reclamações (Intenção de suporte):\n\nPrimeiro, valide o sentimento e tente ajudar: Use a knowledg_base para buscar por soluções rápidas (ex: \"app não funciona\", \"problema com pagamento\"). Ex: \"Puxa, que chato que o app não está funcionando. Sinto muito por isso. Uma dica que costuma resolver é tentar reiniciar o aplicativo. Você já tentou fazer isso?\".\n\nOfereça a Transferência: Se a sua ajuda inicial não resolver o problema, você DEVE perguntar se o usuário deseja falar com a equipe de suporte. Ex: \"Como as dicas iniciais não resolveram, o ideal é que nossa equipe de suporte analise seu caso. Você gostaria que eu te transferisse para eles agora?\".\n\nAguarde a Confirmação: Use a ferramenta suporte SOMENTE após o usuário confirmar explicitamente que deseja a transferência.\n\nCadastro de Motorista:\n\nPrimeiro, use a knowledg_base para fornecer informações sobre o processo.\n\nOfereça a Transferência: Se o usuário pedir para falar com alguém ou se a dúvida persistir, você DEVE perguntar: \"Você gostaria de falar com nossa equipe de cadastros para te ajudar com isso?\"\n\nAguarde a Confirmação: Use a ferramenta cadastros SOMENTE após o usuário confirmar explicitamente que deseja a transferência.\n\nOutras Dúvidas (Intenção de duvidas):\n\nSempre tente a knowledg_base primeiro.\n\nOfereça a Transferência: Se a knowledg_base não tiver a resposta, você DEVE perguntar ao usuário se ele quer falar com um atendente. Ex: \"Essa é uma ótima pergunta. Para te dar a informação mais precisa, o ideal é falar com um de nossos atendentes. Posso te transferir agora?\".\n\nAguarde a Confirmação: Use a ferramenta duvidas SOMENTE após o usuário confirmar explicitamente que deseja a transferência.\n\nETAPA FINAL: Construção da Resposta\nPense: Use a ferramenta Think para analisar a emoção, verificar os dados necessários e decidir a ação.\n\nFormule a Resposta: Escreva o texto da sua resposta, aplicando o tom de voz correto.\n\nResponda ou Execute: Forneça a resposta final ao usuário ou execute a ferramenta necessária.\n\nREGRA DE TRANSFERÊNCIA: Ao executar uma ferramenta de transferência, sua mensagem final para o usuário DEVE comunicar claramente a ação de transferência. NÃO afirme que o problema foi resolvido ou que o cadastro foi feito.\n\nExemplo de resposta CORRETA após transferência: \"Entendido! Para te ajudar com isso, estou te transferindo para a nossa equipe de cadastros. Por favor, aguarde um momento que eles já irão te atender.\"\n\nExemplo de resposta INCORRETA: \"Pronto! Seu cadastro já está em processo.\""
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        880
+      ],
+      "id": "9dc14142-f214-41ef-afdf-34f2f4c95d42",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "sseEndpoint": "https://n8n.urbanmt.com.br/mcp/tools2",
+        "include": "selected",
+        "includeTools": [
+          "knowledg_base"
+        ]
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1,
+      "position": [
+        1968,
+        1328
+      ],
+      "id": "bf3fb41a-4542-4fbb-bdb1-c140290f878b",
+      "name": "MCP Client1",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "toolDescription": "=# Ferramenta: suporte\n\n## Descrição\nA ferramenta **suporte** é utilizada para transferir uma conversa no Chatwoot para o time de suporte técnico da Urban.\n\n## Função\n- Realiza uma requisição POST para a API do Chatwoot, atribuindo a conversa ao time de suporte (team_id = 1).\n- Permite que solicitações de problemas técnicos, dúvidas operacionais ou reclamações sejam direcionadas automaticamente para o setor de suporte.\n\n## Como usar\n- Forneça o `conversation_id` correto na URL da requisição.\n- O corpo da requisição deve conter:\n\n```json\n{\n  \"team_id\": 1\n}\n```\n\n## Recomendações para o LLM\n- Use esta ferramenta somente quando o usuário relatar problemas técnicos, dificuldades de acesso, falhas no app, problemas de recarga ou solicitar atendimento do suporte.\n- Não utilize para dúvidas institucionais, cadastro de motorista ou atribuição de cidade.\n- Certifique-se de que o `conversation_id` está correto e ativo.\n\n## Parâmetros\n- `conversation_id` (string): ID da conversa a ser atribuída ao time de suporte.\n- `team_id` (int): ID do time de suporte (fixo: 1).\n\n## Observações\n- A requisição é feita via método POST para a URL da API do Chatwoot, utilizando o `conversation_id` dinâmico da conversa.\n- O cabeçalho deve conter `Content-Type: application/json` e autenticação via token.\n- Não utilize esta ferramenta para transferências para outros times ou setores.\n",
+        "method": "POST",
+        "url": "=https://chat.urbanmt.com.br/api/v1/accounts/1/conversations/{conversation_id}/assignments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "parametersHeaders": {
+          "values": [
+            {
+              "name": "Content-Type",
+              "valueProvider": "fieldValue",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "parametersBody": {
+          "values": [
+            {
+              "name": "team_id",
+              "valueProvider": "fieldValue",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "id": "857c1ea8-13ac-4d68-a9ce-0c05414364b5",
+      "name": "suporte",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        2272,
+        1248
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cKNxmmubo3dsWokn",
+          "name": "Urbanbot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "=# Ferramenta: duvidas\n\n## Descrição\nA ferramenta **duvidas** é utilizada para transferir uma conversa no Chatwoot para o time de atendimento geral da Urban, responsável por dúvidas não específicas ou solicitações que não se encaixam em outros fluxos.\n\n## Função\n- Realiza uma requisição POST para a API do Chatwoot, atribuindo a conversa ao time de dúvidas gerais (team_id = 3).\n- Permite que solicitações e perguntas genéricas sejam direcionadas automaticamente para o setor de atendimento geral.\n\n## Como usar\n- Forneça o `conversation_id` correto na URL da requisição.\n- O corpo da requisição deve conter:\n\n```json\n{\n  \"team_id\": 3\n}\n```\n\n## Recomendações para o LLM\n- Use esta ferramenta quando o usuário fizer perguntas ou solicitações que não se encaixam nos fluxos de suporte, cadastro de motorista ou atribuição de cidade.\n- Não utilize para dúvidas técnicas, cadastro de motorista ou informações institucionais específicas.\n- Certifique-se de que o `conversation_id` está correto e ativo.\n\n## Parâmetros\n- `conversation_id` (string): ID da conversa a ser atribuída ao time de dúvidas gerais.\n- `team_id` (int): ID do time de dúvidas gerais (fixo: 3).\n\n## Observações\n- A requisição é feita via método POST para a URL da API do Chatwoot, utilizando o `conversation_id` dinâmico da conversa.\n- O cabeçalho deve conter `Content-Type: application/json` e autenticação via token.\n- Não utilize esta ferramenta para transferências para outros times ou setores.\n",
+        "method": "POST",
+        "url": "=https://chat.urbanmt.com.br/api/v1/accounts/1/conversations/{conversation_id}/assignments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "parametersHeaders": {
+          "values": [
+            {
+              "name": "Content-Type",
+              "valueProvider": "fieldValue",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "parametersBody": {
+          "values": [
+            {
+              "name": "team_id",
+              "valueProvider": "fieldValue",
+              "value": "3"
+            }
+          ]
+        }
+      },
+      "id": "82b94ecd-162b-4823-88d1-37a01ed06027",
+      "name": "duvidas",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        2416,
+        1232
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cKNxmmubo3dsWokn",
+          "name": "Urbanbot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Webhook').item.json.body.sender.identifier }}",
+        "tableName": "n8n_chat_histories1oi12112221new2222223112345"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        1680,
+        1312
+      ],
+      "id": "310404de-e81a-456f-b1a5-762a5ae4e1d2",
+      "name": "Postgres Chat Memory",
+      "credentials": {
+        "postgres": {
+          "id": "uqRLyMIkDEcMUDeE",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "# Ferramenta: atribui_a_cidade\n\n## Descrição\nA ferramenta **atribui_a_cidade** serve para atualizar o atributo personalizado \"cidade\" de um contato no Chatwoot, vinculando o usuário a uma cidade específica no sistema Urban.\n\n## Função\n- Realiza uma requisição PATCH para a API do Chatwoot, atualizando o campo `custom_attributes.cidade` do contato identificado pelo `contact_id`.\n- Permite que o sistema reconheça e personalize o atendimento conforme a cidade informada pelo usuário.\n\n## Como usar\n- Sempre forneça o nome exato da cidade no campo `custom_attributes.cidade`.\n- Exemplo de uso:\n\n```json\n{\n  \"custom_attributes\": {\n    \"cidade\": \"Colider\"\n  }\n}\n```\n\n## Recomendações para o LLM\n- Use esta ferramenta somente quando o usuário informar explicitamente uma cidade válida.\n- Não utilize para dúvidas, suporte, cadastro de motorista ou outras intenções.\n- Não adicione campos extras ao JSON.\n- Certifique-se de que o nome da cidade está correto e corresponde a uma das cidades aceitas pelo sistema.\n\n## Parâmetros\n- `custom_attributes.cidade` (string): Nome exato da cidade a ser atribuída ao contato.\n\n## Observações\n- A requisição é feita via método PATCH para a URL da API do Chatwoot, utilizando o `contact_id` dinâmico do usuário.\n- O token de acesso à API é obrigatório e já está configurado no fluxo.\n- Caso a cidade já esteja cadastrada, a ferramenta apenas sobrescreve o valor.\n- Não utilize esta ferramenta para outros tipos de atualização de contato.\n",
+        "method": "PATCH",
+        "url": "=https://chat.urbanmt.com.br/api/v1/accounts/1/contacts/{{ $('Webhook').item.json.body.conversation.contact_inbox.contact_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "3yYJbyjfGdMPr7UsqobchsRg"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2112,
+        1280
+      ],
+      "id": "86eaf7e9-d82c-4fdb-a546-3d9e5fce5f89",
+      "name": "atribui_a_cidade"
+    },
+    {
+      "parameters": {
+        "toolDescription": "=",
+        "method": "POST",
+        "url": "=https://chat.urbanmt.com.br/api/v1/accounts/1/conversations/{conversation_id}/assignments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "parametersHeaders": {
+          "values": [
+            {
+              "name": "Content-Type",
+              "valueProvider": "fieldValue",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "parametersBody": {
+          "values": [
+            {
+              "name": "team_id",
+              "valueProvider": "fieldValue",
+              "value": "2"
+            }
+          ]
+        }
+      },
+      "id": "e96d1c5d-9271-4354-a1b2-3640089a6537",
+      "name": "cadastros",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        2544,
+        1184
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cKNxmmubo3dsWokn",
+          "name": "Urbanbot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "toolDescription": "=# Ferramenta: atribui_a_categoria\n\n## Descrição\nA ferramenta **contato_categoria** serve para atualizar o atributo personalizado \"categoria\" de um contato no Chatwoot, definindo se o usuário e um Motorista ou Passageiro e específica no sistema Urban.\n\n## Função\n- Realiza uma requisição PATCH para a API do Chatwoot, atualizando o campo `custom_attributes.categoria` do contato identificado pelo `contact_id`.\n- Permite que o sistema reconheça e personalize o atendimento conforme a categoria informada pelo usuário.\n\n## Como usar\n- Sempre forneça o nome exato do tipo categoria no campo `custom_attributes.categoria`.\n- Exemplo de uso:\n\n```json\n{\n  \"custom_attributes\": {\n    \"categoria\": \"Motorista\"\n  }\n}\n```\n\n## Recomendações para o LLM\n- Use esta ferramenta somente quando o usuário informar explicitamente uma categoria valida.\n- Não utilize para dúvidas, suporte, cadastro de motorista ou outras intenções.\n- Não adicione campos extras ao JSON.\n- Certifique-se de que o nome da categoria está correto e corresponde a uma das categorias aceitas pelo sistema.\n\n## Parâmetros\n- `custom_attributes.categoria` (string): Nome exato da categoria a ser atribuída ao contato.\n\n## Observações\n- A requisição é feita via método PATCH para a URL da API do Chatwoot, utilizando o `contact_id` dinâmico do usuário.\n- O token de acesso à API é obrigatório e já está configurado no fluxo.\n- Caso a categoria já esteja cadastrada, a ferramenta apenas sobrescreve o valor.\n- Não utilize esta ferramenta para outros tipos de atualização de contato.\n",
+        "method": "PATCH",
+        "url": "=https://chat.urbanmt.com.br/api/v1/accounts/1/contacts/{{ $('Webhook').item.json.body.conversation.contact_inbox.contact_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "3yYJbyjfGdMPr7UsqobchsRg"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('JSON', ``, 'json') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        1088
+      ],
+      "id": "6f57b732-e321-49a9-8281-ad5f9991bd33",
+      "name": "contato_categoria"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1808,
+        1120
+      ],
+      "id": "2a5eb719-ae98-4616-bd0f-da4ae8b158be",
+      "name": "OpenAI Chat Model3",
+      "credentials": {
+        "openAiApi": {
+          "id": "54cBHhggYgxVwrmN",
+          "name": "OpenAi account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Think1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        []
+      ]
+    },
+    "MCP Client1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "suporte": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "duvidas": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "atribui_a_cidade": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cadastros": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "contato_categoria": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0a22e49209ffac9d4fde1114518bdf0ccbed91ffd6a9d6729115d3b22ebad505"
+  }
+}

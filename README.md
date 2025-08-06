@@ -20,7 +20,7 @@
 Use Agno to build the 5 levels of Agentic Systems:
 - Level 1: Agents with tools and instructions.
 - Level 2: Agents with knowledge and storage.
-- Level 3: Agents with native memory and reasoning (sem necessidade de ReasoningTools).
+- Level 3: Agents with memory and reasoning.
 - Level 4: Agent Teams that can reason and collaborate.
 - Level 5: Agentic Workflows with state and determinism.
 
