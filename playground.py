@@ -208,6 +208,17 @@ class CustomPlayground(Playground):
                 return to_json_safe(result)
             return {"result": to_json_safe(result)}
 
+        @app.get("/health", tags=["Health"])
+        def health_check():
+            """Health check endpoint for deployment monitoring"""
+            return {
+                "status": "healthy",
+                "agent": "Alice",
+                "tools": ["suporte", "cadastros", "duvidas", "atribui_a_cidade", "contato_categoria", "busca_duckduckgo"],
+                "version": "2.0",
+                "features": ["chatwoot_integration", "duckduckgo_search", "intelligent_fallback"]
+            }
+
         return app
 
 # --- Inicialização do App ---
@@ -215,4 +226,6 @@ playground_app = CustomPlayground(agents=[alice_agent])
 app = playground_app.get_app()
 
 if __name__ == "__main__":
-    playground_app.serve("playground:app", reload=True)
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("playground:app", host="0.0.0.0", port=port, reload=False)

@@ -1,0 +1,28 @@
+{
+  "name": "Alice Urban Assistant",
+  "description": "Agente inteligente da Urban com integração Chatwoot e DuckDuckGo",
+  "keywords": ["agno", "chatbot", "urban", "transport"],
+  "website": "https://github.com/daaty/agno",
+  "repository": "https://github.com/daaty/agno",
+  "stack": "heroku-24",
+  "success_url": "/health",
+  "env": {
+    "OPENAI_API_KEY": {
+      "description": "OpenAI API Key for GPT-4o model",
+      "required": true
+    },
+    "CHATWOOT_API_TOKEN": {
+      "description": "Chatwoot API Token for integrations",
+      "required": true
+    },
+    "GEMINI_API_KEY": {
+      "description": "Google Gemini API Key (optional)",
+      "required": false
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+}

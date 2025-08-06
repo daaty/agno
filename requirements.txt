@@ -1,0 +1,22 @@
+# Agno Framework - Dependências principais
+agno>=1.7.6
+
+# Web Framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+
+# OpenAI
+openai>=1.12.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+
+# HTTP Requests (já incluído no Python, mas explícito para documentação)
+# urllib3>=2.0.0  # Já incluído no Python padrão
+
+# Database (SQLite já incluído no Python)
+# sqlite3 # Já incluído no Python padrão
+
+# Opcional: Para logs e monitoramento
+python-json-logger>=2.0.0
