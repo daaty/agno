@@ -130,24 +130,31 @@ def busca_knowledge_base_tool(query: str):
         # Busca por palavras-chave no título ou conteúdo (case-insensitive)
         query_lower = query.lower()
 
-        # Usa a função query do SqliteStorage para filtrar resultados
-        def filter_knowledge(session):
-            session_data = session.session_data
-            title = session_data.get("title", "").lower()
-            content = session_data.get("content", "").lower()
-            return query_lower in title or query_lower in content
+        # Usa o método get_all_sessions do SqliteStorage
+        all_sessions = storage.get_all_sessions()
 
-        results = storage.query(filter_knowledge)
+        # Filtra resultados que contenham a query no título ou conteúdo
+        matches = []
+        for session in all_sessions:
+            if hasattr(session, 'session_data') and session.session_data:
+                session_data = session.session_data
+                title = session_data.get("title", "").lower()
+                content = session_data.get("content", "").lower()
 
-        if results:
-            print(f"[LOG] Encontrados {len(results)} resultados na knowledge base")
+                if query_lower in title or query_lower in content:
+                    matches.append({
+                        "title": session_data.get("title", ""),
+                        "content": session_data.get("content", "")
+                    })
+
+        if matches:
+            print(f"[LOG] Encontrados {len(matches)} resultados na knowledge base")
             # Retorna o primeiro resultado mais relevante
-            first_result = results[0]
             return {
                 "found": True,
                 "source": "knowledge_base",
-                "title": first_result.session_data.get("title", ""),
-                "content": first_result.session_data.get("content", "")
+                "title": matches[0]["title"],
+                "content": matches[0]["content"]
             }
         else:
             print(f"[LOG] Nenhum resultado encontrado na knowledge base para: {query}")
