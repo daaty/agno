@@ -20,7 +20,7 @@
 Use Agno to build the 5 levels of Agentic Systems:
 - Level 1: Agents with tools and instructions.
 - Level 2: Agents with knowledge and storage.
-- Level 3: Agents with memory and reasoning.
+- Level 3: Agents with native memory and reasoning (sem necessidade de ReasoningTools).
 - Level 4: Agent Teams that can reason and collaborate.
 - Level 5: Agentic Workflows with state and determinism.
 
@@ -49,16 +49,16 @@ https://github.com/user-attachments/assets/4ef27ba6-a781-4fb0-b49c-bfd838123c83
 
 If you're new to Agno, read the documentation to build your [first Agent](https://docs.agno.com/introduction/agents), chat with it on the [playground](https://docs.agno.com/introduction/playground) and monitor it on [agno.com](https://docs.agno.com/introduction/monitoring).
 
-After that, checkout the [Examples Gallery](https://docs.agno.com/examples) and build real-world applications with Agno.
+Depois disso, confira a [Galeria de Exemplos](https://docs.agno.com/examples) e construa aplicações reais com o Agno.
 
-## Why Agno?
+## Por que escolher o Agno?
 
-Agno will help you build best-in-class, highly-performant agentic systems, saving you hours of research and boilerplate. Here are some key features that set Agno apart:
+Agno vai te ajudar a criar sistemas de agentes de alta performance, economizando horas de pesquisa e trabalho repetitivo. Veja alguns recursos que tornam o Agno especial:
 
-- **Model Agnostic**: Agno provides a unified interface to 23+ model providers, no lock-in.
-- **Highly performant**: Agents instantiate in **~3μs** and use **~6.5Kib** memory on average.
-- **Reasoning is a first class citizen**: Reasoning improves reliability and is a must-have for complex autonomous agents. Agno supports 3 approaches to reasoning: Reasoning Models, `ReasoningTools` or our custom `chain-of-thought` approach.
-- **Natively Multi-Modal**: Agno Agents are natively multi-modal, they accept text, image, audio and video as input and generate text, image, audio and video as output.
+- **Modelo Agnóstico**: O Agno oferece uma interface unificada para mais de 23 provedores de modelos, sem dependência de fornecedor.
+- **Alta performance**: Os agentes são instanciados em **~3μs** e usam em média **~6.5Kib** de memória.
+- **Raciocínio como prioridade**: O raciocínio aumenta a confiabilidade e é essencial para agentes autônomos complexos. O Agno suporta 3 abordagens: Modelos de Raciocínio, `ReasoningTools` ou nossa abordagem personalizada de `chain-of-thought`.
+- **Multi-modal nativo**: Os agentes Agno aceitam texto, imagem, áudio e vídeo como entrada e geram texto, imagem, áudio e vídeo como saída.
 - **Advanced Multi-Agent Architecture**: Agno provides an industry leading multi-agent architecture (**Agent Teams**) with reasoning, memory, and shared context.
 - **Built-in Agentic Search**: Agents can search for information at runtime using 20+ vector databases. Agno provides state-of-the-art Agentic RAG, **fully async and highly performant.**
 - **Built-in Memory & Session Storage**: Agents come with built-in `Storage` & `Memory` drivers that give your Agents long-term memory and session storage.
