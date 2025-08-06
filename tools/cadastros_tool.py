@@ -1,6 +1,11 @@
 import os
 import requests
+import logging
 from dotenv import load_dotenv
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 CHATWOOT_TOKEN = os.getenv("CHATWOOT_API_TOKEN")
@@ -21,11 +26,11 @@ class CadastrosTool:
             "api_access_token": CHATWOOT_TOKEN  # Correção: usar api_access_token em vez de Authorization Bearer
         }
         body = {"team_id": 2}
-        print(f"[DEBUG] Fazendo POST para: {url}")
-        print(f"[DEBUG] Headers: {headers}")
-        print(f"[DEBUG] Body: {body}")
+        logger.debug(f"[{self.__class__.__name__}] POST para: {url}")
+        # Headers logados apenas em debug se necessário
+        logger.debug(f"[{self.__class__.__name__}] Body: {body}")
         response = requests.post(url, json=body, headers=headers)
-        print(f"[DEBUG] Status code: {response.status_code}")
-        print(f"[DEBUG] Response: {response.text}")
+        logger.info(f"[{self.__class__.__name__}] Status: {response.status_code}")
+        if response.status_code != 200: logger.error(f"[{self.__class__.__name__}] Erro: {response.text}")
         response.raise_for_status()
         return response.json()

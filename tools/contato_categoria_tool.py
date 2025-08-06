@@ -1,6 +1,11 @@
 import os
 import requests
+import logging
 from dotenv import load_dotenv
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 CHATWOOT_TOKEN = os.getenv("CHATWOOT_API_TOKEN")

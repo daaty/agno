@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, Request
 from pydantic import BaseModel, Field
@@ -8,6 +9,9 @@ from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.playground import Playground
 from agno.storage.sqlite import SqliteStorage
+
+# Importar configuração de logging
+from logging_config import logger
 
 # Importe suas ferramentas customizadas
 from tools.suporte_tool import SuporteTool
@@ -26,14 +30,14 @@ api_key = os.getenv("OPENAI_API_KEY")
 
 def suporte_tool(conversation_id: str):
     """Ferramenta para transferir conversa para o time de suporte no Chatwoot. Requer 'conversation_id'."""
-    print(f"[LOG] suporte_tool chamado com conversation_id={conversation_id}")
-    print(f"[DEBUG] Valor recebido: '{conversation_id}' (tipo: {type(conversation_id)})")
+    logger.info(f"[SuporteTool] Chamado com conversation_id={conversation_id}")
+    logger.debug(f"[SuporteTool] Valor recebido: '{conversation_id}' (tipo: {type(conversation_id)})")
     assert conversation_id is not None, "conversation_id não pode ser None!"
 
     # VALIDAÇÃO CRÍTICA: Bloqueia IDs que não são strings numéricas simples (evita IDs longos incorretos)
     if not conversation_id.isdigit() or len(conversation_id) > 6:
-        print(f"[ERRO] conversation_id inválido ou muito longo: {conversation_id}. Bloqueando chamada.")
-        print(f"[DICA] O contexto atual tem 'conversation_id': '107'. Use EXATAMENTE '107', não variáveis como 'current_conversation_id'.")
+        logger.error(f"[SuporteTool] conversation_id inválido: {conversation_id}. Bloqueando chamada.")
+        logger.info("[SuporteTool] Dica: Use EXATAMENTE o conversation_id do contexto, como '107'.")
         return {"error": f"conversation_id inválido: {conversation_id}. Use o valor LITERAL do contexto: '107'."}
 
     return SuporteTool().run({"conversation_id": conversation_id})
@@ -98,7 +102,7 @@ def busca_duckduckgo_tool(query: str):
     - Problemas técnicos que precisam de soluções atualizadas
     - Informações sobre cidades específicas da região
     """
-    print(f"[LOG] busca_duckduckgo_tool chamado com query={query}")
+    logger.info(f"[BuscaDuckDuckGo] Chamado com query={query}")
     return duckduckgo_search(query)
 busca_duckduckgo_tool.__name__ = "busca_duckduckgo"
 
@@ -180,7 +184,8 @@ class CustomPlayground(Playground):
                 "custom_attributes_city": payload.custom_attributes_city,
                 "custom_attributes_category": payload.custom_attributes_category,
             }
-            print(f"[LOG] Contexto recebido no endpoint: {context}")
+            logger.info(f"[Alice] Contexto recebido no endpoint: {context}")
+            alice_agent.add_context(context)
 
             result = agent.run(
                 message=payload.message,

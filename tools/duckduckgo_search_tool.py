@@ -5,7 +5,12 @@ Ferramenta de busca DuckDuckGo para a Alice da Urban
 import urllib.request
 import urllib.parse
 import json
+import logging
 from typing import Dict, Any
+
+# Configurar logging para as ferramentas
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def duckduckgo_search(query: str) -> Dict[str, Any]:
@@ -24,7 +29,7 @@ def duckduckgo_search(query: str) -> Dict[str, Any]:
     Returns:
         Dict com resultados da busca
     """
-    print(f"[DuckDuckGo] Buscando: {query}")
+    logger.info(f"[DuckDuckGo] Buscando: {query}")
 
     try:
         # API do DuckDuckGo Instant Answer
@@ -70,7 +75,7 @@ def duckduckgo_search(query: str) -> Dict[str, Any]:
         has_related = result.get('related_topics') and len(result['related_topics']) > 0
 
         if info_found or has_related:
-            print(f"[DuckDuckGo] Resultado encontrado: {str(info_found or 'Tópicos relacionados')[:100]}...")
+            logger.info(f"[DuckDuckGo] Resultado encontrado: {str(info_found or 'Tópicos relacionados')[:100]}...")
             # Adiciona campo results para compatibilidade
             result["results"] = []
             if info_found:
@@ -87,7 +92,7 @@ def duckduckgo_search(query: str) -> Dict[str, Any]:
                     "url": topic.get('url', '')
                 })
         else:
-            print("[DuckDuckGo] Nenhuma resposta específica encontrada")
+            logger.info("[DuckDuckGo] Nenhuma resposta específica encontrada")
 
         # Adiciona um resumo melhor
         if result.get('abstract'):
@@ -102,13 +107,13 @@ def duckduckgo_search(query: str) -> Dict[str, Any]:
     except Exception as e:
         error_msg = str(e).lower()
         if 'timeout' in error_msg:
-            print("[DuckDuckGo] Timeout na busca")
+            logger.warning("[DuckDuckGo] Timeout na busca")
             return {
                 "status": "timeout",
                 "message": "A busca demorou mais que o esperado. Vou te conectar com um atendente para uma resposta mais rápida."
             }
         else:
-            print(f"[DuckDuckGo] Erro: {str(e)}")
+            logger.error(f"[DuckDuckGo] Erro: {str(e)}")
             return {
                 "status": "error",
                 "message": "Não consegui fazer a busca no momento. Deixe-me te conectar com nossa equipe."
