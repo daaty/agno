@@ -80,7 +80,39 @@ def atribui_cidade_tool(contact_id: str, cidade: str):
         print(f"[ERRO] contact_id inválido: {contact_id}. Bloqueando chamada.")
         return {"error": f"contact_id inválido: {contact_id}. Use apenas o ID do contexto atual."}
 
-    return AtribuiCidadeTool().run({"contact_id": contact_id, "cidade": cidade})
+    # NORMALIZAÇÃO CRÍTICA DE CIDADE: Lista exata de cidades aceitas pela API
+    cidades_validas = {
+        # Mapeamento de variações para nomes EXATOS da API
+        "matupa": "Matupa",
+        "matupá": "Matupa",
+        "guaranta": "Guaranta",
+        "guarantã": "Guaranta",
+        "guarantã do norte": "Guaranta",
+        "peixoto": "Peixoto",
+        "peixoto de azevedo": "Peixoto",
+        "monte verde": "Monte Verde",
+        "nova monte verde": "Monte Verde",
+        "bandeirantes": "Bandeirantes",
+        "alta floresta": "Alta Floresta",
+        "nova canaa": "Nova Canaa",
+        "nova canaã": "Nova Canaa",
+        "nova canaa do norte": "Nova Canaa",
+        "nova canaã do norte": "Nova Canaa",
+        "colider": "Colider",
+        "colidér": "Colider"
+    }
+
+    # Normaliza a entrada do usuário
+    cidade_normalizada = cidade.lower().strip()
+
+    if cidade_normalizada in cidades_validas:
+        cidade_final = cidades_validas[cidade_normalizada]
+        print(f"[LOG] Cidade normalizada de '{cidade}' para '{cidade_final}'")
+    else:
+        print(f"[ERRO] Cidade inválida: '{cidade}'. Cidades aceitas: {list(set(cidades_validas.values()))}")
+        return {"error": f"Cidade inválida: '{cidade}'. Cidades aceitas: Matupa, Guaranta, Peixoto, Monte Verde, Bandeirantes, Alta Floresta, Nova Canaa, Colider"}
+
+    return AtribuiCidadeTool().run({"contact_id": contact_id, "cidade": cidade_final})
 atribui_cidade_tool.__name__ = "atribui_a_cidade"
 
 def contato_categoria_tool(input):
@@ -297,6 +329,8 @@ alice_instructions = [
     "BUSCA INTELIGENTE: Se a base local não tiver a resposta, use `busca_duckduckgo` para horários de transporte, localizações, problemas técnicos ou informações sobre cidades.",
     "CRÍTICO: Para ferramentas de transferência, use o valor EXATO de conversation_id do contexto. Se o contexto mostra 'conversation_id': '107', use EXATAMENTE '107'. NUNCA use 'current_conversation_id' ou qualquer variável.",
     "CRÍTICO: Para ferramentas de atribuição, use o valor EXATO de contact_id do contexto. Se o contexto mostra 'contact_id': '10', use EXATAMENTE '10'.",
+    "ATRIBUIÇÃO DE CIDADE - REGRA CRÍTICA: Para atribuir cidade, use APENAS os nomes EXATOS desta lista (sem acento, primeira letra maiúscula): Matupa, Guaranta, Peixoto, Monte Verde, Bandeirantes, Alta Floresta, Nova Canaa, Colider. Se usuário disser variações como 'Matupá', 'peixoto', 'alta floresta', normalize para o nome EXATO da lista (Matupa, Peixoto, Alta Floresta). NUNCA use nomes diferentes desta lista.",
+    "FORMATO CIDADE: Sempre use atribui_cidade_tool(contact_id='10', cidade='Matupa') com nome EXATO da lista, nunca use JSON ou outros formatos.",
     "Responda diretamente usando conhecimento quando possível. Use busca_knowledge_base como primeira opção, busca_duckduckgo como segunda opção. Só ofereça transferência como último recurso.",
 ]
 
