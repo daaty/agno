@@ -129,32 +129,25 @@ def busca_knowledge_base_tool(query: str):
 
         # Busca por palavras-chave no título ou conteúdo (case-insensitive)
         query_lower = query.lower()
-        results = storage.read_sessions(
-            user_id=None,  # Não filtra por usuário
-            num_sessions=50  # Busca até 50 documentos
-        )
 
-        # Filtra resultados que contenham a query no título ou conteúdo
-        matches = []
-        for session in results:
+        # Usa a função query do SqliteStorage para filtrar resultados
+        def filter_knowledge(session):
             session_data = session.session_data
             title = session_data.get("title", "").lower()
             content = session_data.get("content", "").lower()
+            return query_lower in title or query_lower in content
 
-            if query_lower in title or query_lower in content:
-                matches.append({
-                    "title": session_data.get("title", ""),
-                    "content": session_data.get("content", "")
-                })
+        results = storage.query(filter_knowledge)
 
-        if matches:
-            print(f"[LOG] Encontrados {len(matches)} resultados na knowledge base")
+        if results:
+            print(f"[LOG] Encontrados {len(results)} resultados na knowledge base")
             # Retorna o primeiro resultado mais relevante
+            first_result = results[0]
             return {
                 "found": True,
                 "source": "knowledge_base",
-                "title": matches[0]["title"],
-                "content": matches[0]["content"]
+                "title": first_result.session_data.get("title", ""),
+                "content": first_result.session_data.get("content", "")
             }
         else:
             print(f"[LOG] Nenhum resultado encontrado na knowledge base para: {query}")
@@ -170,9 +163,7 @@ def busca_knowledge_base_tool(query: str):
             "error": f"Erro na busca local: {str(e)}"
         }
 
-busca_knowledge_base_tool.__name__ = "busca_knowledge_base"
-
-# INSTRUÇÕES SIMPLIFICADAS: Concisas e diretas como no n8n
+busca_knowledge_base_tool.__name__ = "busca_knowledge_base"# INSTRUÇÕES SIMPLIFICADAS: Concisas e diretas como no n8n
 alice_instructions = [
     "Você é Alice, assistente virtual da Urban. Seja humana, calorosa e prestativa.",
     "SEMPRE use dados do contexto atual PRIMEIRO. Nunca pergunte informações já presentes no contexto.",
