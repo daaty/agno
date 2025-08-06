@@ -42,7 +42,7 @@ def suporte_tool(conversation_id: str):
         return {"error": f"conversation_id inválido: {conversation_id}. Use o valor LITERAL do contexto: '107'."}
 
     return SuporteTool().run({"conversation_id": conversation_id})
-suporte_tool.__name__ = "suporte"
+# suporte_tool.__name__ = "suporte"  # Comentado para debug
 
 
 def cadastros_tool(conversation_id: str):
@@ -58,7 +58,7 @@ def cadastros_tool(conversation_id: str):
         return {"error": f"conversation_id inválido: {conversation_id}. Use o valor LITERAL do contexto: '107'."}
 
     return CadastrosTool().run({"conversation_id": conversation_id})
-cadastros_tool.__name__ = "cadastros"
+# cadastros_tool.__name__ = "cadastros"  # Comentado para debug
 
 
 def duvidas_tool(conversation_id: str):
@@ -74,7 +74,7 @@ def duvidas_tool(conversation_id: str):
         return {"error": f"conversation_id inválido: {conversation_id}. Use o valor LITERAL do contexto: '107'."}
 
     return DuvidasTool().run({"conversation_id": conversation_id})
-duvidas_tool.__name__ = "duvidas"
+# duvidas_tool.__name__ = "duvidas"  # Comentado para debug
 
 def atribui_cidade_tool(contact_id: str, cidade: str):
     """Ferramenta para atribuir cidade ao contato no Chatwoot. Requer 'contact_id' e 'cidade'."""
@@ -86,12 +86,12 @@ def atribui_cidade_tool(contact_id: str, cidade: str):
         return {"error": f"contact_id inválido: {contact_id}. Use apenas o ID do contexto atual."}
 
     return AtribuiCidadeTool().run({"contact_id": contact_id, "cidade": cidade})
-atribui_cidade_tool.__name__ = "atribui_a_cidade"
+# atribui_cidade_tool.__name__ = "atribui_a_cidade"  # Comentado para debug
 
 def contato_categoria_tool(input):
     """Ferramenta para atualizar o atributo 'categoria' de um contato no Chatwoot."""
     return ContatoCategoriaTool().run(input)
-contato_categoria_tool.__name__ = "contato_categoria"
+# contato_categoria_tool.__name__ = "contato_categoria"  # Comentado para debug
 
 def busca_duckduckgo_tool(query: str):
     """
@@ -105,7 +105,7 @@ def busca_duckduckgo_tool(query: str):
     """
     logger.info(f"[BuscaDuckDuckGo] Chamado com query={query}")
     return duckduckgo_search(query)
-busca_duckduckgo_tool.__name__ = "busca_duckduckgo"
+# busca_duckduckgo_tool.__name__ = "busca_duckduckgo"  # Comentado para debug
 
 # --- Configuração do Agente ---
 os.makedirs("tmp", exist_ok=True)
