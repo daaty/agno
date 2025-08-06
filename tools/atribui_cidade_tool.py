@@ -12,8 +12,12 @@ class AtribuiCidadeTool:
         # Espera input como dict: {"contact_id": "...", "cidade": "..."}
         contact_id = input.get("contact_id")
         cidade = input.get("cidade")
+
+        print(f"[DEBUG] AtribuiCidadeTool executando com contact_id={contact_id}, cidade={cidade}")
+
         if not contact_id or not cidade:
             return "É necessário informar contact_id e cidade."
+
         url = f"https://chat.urbanmt.com.br/api/v1/accounts/1/contacts/{contact_id}"
         headers = {
             "api_access_token": CHATWOOT_TOKEN,
@@ -24,8 +28,16 @@ class AtribuiCidadeTool:
                 "cidade": cidade
             }
         }
+
+        print(f"[DEBUG] Fazendo PATCH para: {url}")
+        print(f"[DEBUG] Headers: {headers}")
+        print(f"[DEBUG] Body: {body}")
+
         try:
             response = requests.patch(url, json=body, headers=headers)
+            print(f"[DEBUG] Status code: {response.status_code}")
+            print(f"[DEBUG] Response: {response.text}")
+
             if response.status_code == 200:
                 return f"Cidade '{cidade}' atribuída com sucesso ao contato {contact_id}."
             else:
