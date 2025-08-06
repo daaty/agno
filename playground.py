@@ -188,7 +188,7 @@ class CustomPlayground(Playground):
             logger.info(f"[Alice] Contexto recebido no endpoint: {context}")
             alice_agent.add_context(context)
 
-            result = agent.run(
+            result = alice_agent.run(
                 message=payload.message,
                 session_id=payload.session_id,
                 context=context
