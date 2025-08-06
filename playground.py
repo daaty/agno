@@ -33,8 +33,8 @@ def suporte_tool(conversation_id: str):
     # VALIDAÇÃO CRÍTICA: Bloqueia IDs que não são strings numéricas simples (evita IDs longos incorretos)
     if not conversation_id.isdigit() or len(conversation_id) > 6:
         print(f"[ERRO] conversation_id inválido ou muito longo: {conversation_id}. Bloqueando chamada.")
-        print(f"[DICA] O contexto atual tem 'conversation_id': '107'. Use EXATAMENTE '107', não variáveis como 'current_conversation_id'.")
-        return {"error": f"conversation_id inválido: {conversation_id}. Use o valor LITERAL do contexto: '107'."}
+        print(f"[DICA] Use o valor EXATO de conversation_id recebido no contexto, sem variáveis ou exemplos.")
+        return {"error": f"conversation_id inválido: {conversation_id}. Use o valor EXATO do contexto recebido."}
 
     return SuporteTool().run({"conversation_id": conversation_id})
 suporte_tool.__name__ = "suporte"
@@ -49,8 +49,8 @@ def cadastros_tool(conversation_id: str):
     # VALIDAÇÃO CRÍTICA: Bloqueia IDs que não são strings numéricas simples (evita IDs longos incorretos)
     if not conversation_id.isdigit() or len(conversation_id) > 6:
         print(f"[ERRO] conversation_id inválido ou muito longo: {conversation_id}. Bloqueando chamada.")
-        print(f"[DICA] O contexto atual tem 'conversation_id': '107'. Use EXATAMENTE '107', não variáveis como 'current_conversation_id'.")
-        return {"error": f"conversation_id inválido: {conversation_id}. Use o valor LITERAL do contexto: '107'."}
+        print(f"[DICA] Use o valor EXATO de conversation_id recebido no contexto, sem variáveis ou exemplos.")
+        return {"error": f"conversation_id inválido: {conversation_id}. Use o valor EXATO do contexto recebido."}
 
     return CadastrosTool().run({"conversation_id": conversation_id})
 cadastros_tool.__name__ = "cadastros"
@@ -65,8 +65,8 @@ def duvidas_tool(conversation_id: str):
     # VALIDAÇÃO CRÍTICA: Bloqueia IDs que não são strings numéricas simples (evita IDs longos incorretos)
     if not conversation_id.isdigit() or len(conversation_id) > 6:
         print(f"[ERRO] conversation_id inválido ou muito longo: {conversation_id}. Bloqueando chamada.")
-        print(f"[DICA] O contexto atual tem 'conversation_id': '107'. Use EXATAMENTE '107', não variáveis como 'current_conversation_id'.")
-        return {"error": f"conversation_id inválido: {conversation_id}. Use o valor LITERAL do contexto: '107'."}
+        print(f"[DICA] Use o valor EXATO de conversation_id recebido no contexto, sem variáveis ou exemplos.")
+        return {"error": f"conversation_id inválido: {conversation_id}. Use o valor EXATO do contexto recebido."}
 
     return DuvidasTool().run({"conversation_id": conversation_id})
 duvidas_tool.__name__ = "duvidas"
