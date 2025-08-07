@@ -1,16 +1,27 @@
 import os
+import json
+import time
+import logging
+from datetime import datetime
+from typing import Optional, Dict, List, Any
+from dataclasses import dataclass
+from functools import wraps
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, Request
-from pydantic import BaseModel, Field
-from typing import Optional, Dict
+from fastapi import Body, FastAPI, Request, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from cachetools import TTLCache
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.playground import Playground
 from agno.storage.sqlite import SqliteStorage
-from agno.memory.agent import AgentMemory
-from agno.memory.db.sqlite import SqliteMemoryDb
-from agno.tools.reasoning import ReasoningTools
 
 # Importe suas ferramentas customizadas
 from tools.suporte_tool import SuporteTool
@@ -18,112 +29,712 @@ from tools.cadastros_tool import CadastrosTool
 from tools.duvidas_tool import DuvidasTool
 from tools.atribui_cidade_tool import AtribuiCidadeTool
 from tools.contato_categoria_tool import ContatoCategoriaTool
+from tools.duckduckgo_search_tool import duckduckgo_search
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 
-# --- Definição das Ferramentas ---
-# Funções wrapper para garantir que as ferramentas sejam registradas corretamente no Agno
+# --- Configuração de Logging Estruturado ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('playground.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
-def suporte_tool(conversation_id: str):
-    """Ferramenta para transferir conversa para o time de suporte no Chatwoot. Requer 'conversation_id'."""
-    print(f"[LOG] suporte_tool chamado com conversation_id={conversation_id}")
-    assert conversation_id is not None, "conversation_id não pode ser None!"
-    return SuporteTool().run({"conversation_id": conversation_id})
-suporte_tool.__name__ = "suporte"
+# --- Configuração de Rate Limiting ---
+limiter = Limiter(key_func=get_remote_address)
 
+# --- Configuração de Cache ---
+# Cache para resultados de busca e outras operações custosas
+search_cache = TTLCache(maxsize=1000, ttl=300)  # 5 minutos
+city_cache = TTLCache(maxsize=100, ttl=3600)     # 1 hora
 
-def cadastros_tool(conversation_id: str):
-    """Ferramenta para transferir conversa para o time de cadastros no Chatwoot. Requer 'conversation_id'."""
-    print(f"[LOG] cadastros_tool chamado com conversation_id={conversation_id}")
-    assert conversation_id is not None, "conversation_id não pode ser None!"
-    return CadastrosTool().run({"conversation_id": conversation_id})
-cadastros_tool.__name__ = "cadastros"
+# --- Configurações Externas ---
+@dataclass
+class AppConfig:
+    """Configurações centralizadas da aplicação"""
+    MAX_CONVERSATION_ID_LENGTH = 6
+    MAX_CONTACT_ID_LENGTH = 10
+    AGENT_STORAGE_PATH = "tmp/agents.db"
+    KNOWLEDGE_BASE_FILE = "knowledge_base.md"
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
+    # Carrega cidades válidas de arquivo JSON ou usa padrão
+    @staticmethod
+    def load_valid_cities() -> Dict[str, str]:
+        """
+        Lê o arquivo JSON de cidades válidas. Se não existir ou estiver corrompido, faz fallback seguro para o padrão.
+        Sempre retorna um dicionário válido e faz logging detalhado.
+        """
+        cities_file = "config/cidades.json"
+        default_cities = {
+            "matupa": "Matupa",
+            "matupá": "Matupa",
+            "guaranta": "Guaranta",
+            "guarantã": "Guaranta",
+            "guarantã do norte": "Guaranta",
+            "peixoto": "Peixoto",
+            "peixoto de azevedo": "Peixoto",
+            "monte verde": "Monte Verde",
+            "nova monte verde": "Monte Verde",
+            "bandeirantes": "Bandeirantes",
+            "alta floresta": "Alta Floresta",
+            "nova canaa": "Nova Canaa",
+            "nova canaã": "Nova Canaa",
+            "nova canaa do norte": "Nova Canaa",
+            "nova canaã do norte": "Nova Canaa",
+            "colider": "Colider",
+            "colidér": "Colider"
+        }
+        try:
+            if os.path.exists(cities_file):
+                with open(cities_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and data:
+                        logger.info(f"Cidades carregadas do arquivo {cities_file}: {list(data.values())}")
+                        return data
+                    else:
+                        logger.warning(f"Arquivo {cities_file} está vazio ou mal formatado. Usando fallback.")
+        except Exception as e:
+            logger.warning(f"Não foi possível carregar cidades do arquivo {cities_file}: {e}. Usando fallback.")
+        logger.info(f"Usando cidades padrão: {list(default_cities.values())}")
+        return default_cities
 
-def duvidas_tool(conversation_id: str):
-    """Ferramenta para transferir conversa para o time de dúvidas gerais no Chatwoot. Requer 'conversation_id'."""
-    print(f"[LOG] duvidas_tool chamado com conversation_id={conversation_id}")
-    assert conversation_id is not None, "conversation_id não pode ser None!"
-    return DuvidasTool().run({"conversation_id": conversation_id})
-duvidas_tool.__name__ = "duvidas"
+# --- Funções de Validação Centralizadas ---
+def validate_conversation_id(conversation_id: str) -> bool:
+    """Valida se o conversation_id é uma string numérica de tamanho adequado."""
+    if not conversation_id:
+        return False
+    return conversation_id.isdigit() and len(conversation_id) <= AppConfig.MAX_CONVERSATION_ID_LENGTH
 
+def validate_contact_id(contact_id: str) -> bool:
+    """Valida se o contact_id é uma string numérica válida."""
+    if not contact_id or contact_id == "undefined":
+        return False
+    return contact_id.isdigit() and len(contact_id) <= AppConfig.MAX_CONTACT_ID_LENGTH
+
+def validate_category(category: str) -> bool:
+    """Valida se a categoria é válida."""
+    valid_categories = ["Passageiro", "Motorista"]
+    return category in valid_categories
+
+# --- Decoradores para Melhorar Resiliência ---
+def circuit_breaker(max_failures=3, timeout=60):
+    """Implementa um circuit breaker simples"""
+    failures = []
+    last_failure = 0
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            nonlocal failures, last_failure
+            # Verifica se o circuito está aberto
+            if len(failures) >= max_failures:
+                time_since_last = time.time() - last_failure
+                if time_since_last < timeout:
+                    logger.error(f"[CIRCUIT BREAKER] Circuito aberto para {func.__name__} - aguardando {timeout - time_since_last:.1f}s")
+                    raise Exception("Circuit breaker está aberto - serviço temporariamente indisponível")
+                else:
+                    logger.info(f"[CIRCUIT BREAKER] Timeout atingido, resetando circuito para {func.__name__}")
+                    failures.clear()
+            try:
+                result = func(*args, **kwargs)
+                if failures:
+                    logger.info(f"[CIRCUIT BREAKER] Sucesso em {func.__name__}, resetando falhas")
+                failures.clear()
+                return result
+            except Exception as e:
+                failures.append(e)
+                last_failure = time.time()
+                logger.warning(f"[CIRCUIT BREAKER] Falha em {func.__name__}: {e} ({len(failures)}/{max_failures})")
+                raise
+        return wrapper
+    return decorator
+
+# --- Decorador para Cache ---
+def cache_result(cache_key_func):
+    """Decorator para cache de resultados de funções"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            cache_key = cache_key_func(*args, **kwargs)
+            try:
+                # Tenta obter do cache
+                if cache_key in search_cache:
+                    logger.debug(f"Cache hit para key: {cache_key}")
+                    return search_cache[cache_key]
+            except Exception as e:
+                logger.warning(f"Falha ao acessar cache para key {cache_key}: {e}")
+            try:
+                # Executa a função e armazena no cache
+                result = func(*args, **kwargs)
+                try:
+                    search_cache[cache_key] = result
+                    logger.debug(f"Cache miss para key: {cache_key} (armazenado)")
+                except Exception as e:
+                    logger.warning(f"Falha ao salvar no cache para key {cache_key}: {e}")
+                return result
+            except Exception as e:
+                logger.error(f"Erro na função decorada por cache_result: {e}")
+                raise
+        return wrapper
+    return decorator
+
+# --- Classes de Erro Customizadas ---
+class ValidationError(Exception):
+    """Erro de validação de dados"""
+    """Erro de validação de dados"""
+    # Pode ser expandido para incluir informações adicionais no futuro
+    pass
+
+class ServiceUnavailableError(Exception):
+    """Erro de serviço indisponível"""
+    """Erro de serviço indisponível"""
+    # Pode ser expandido para incluir informações adicionais no futuro
+    pass
+
+class KnowledgeBaseError(Exception):
+    """Erro na base de conhecimento"""
+    """Erro na base de conhecimento"""
+    # Pode ser expandido para incluir informações adicionais no futuro
+    pass
+
+# --- Definição das Ferramentas Melhoradas ---
+# Funções wrapper com validação centralizada e tratamento de erro robusto
+
+def create_transfer_tool(tool_class, tool_name):
+    """Factory function para criar ferramentas de transferência com validação centralizada"""
+    def transfer_tool(conversation_id: str):
+        """Ferramenta para transferir conversa usando validação centralizada."""
+        logger.info(f"{tool_name}_tool chamado com conversation_id={conversation_id}")
+
+        try:
+            if not validate_conversation_id(conversation_id):
+                error_msg = f"conversation_id inválido: {conversation_id}. Use o valor EXATO do contexto recebido."
+                logger.error(error_msg)
+                return {"error": error_msg}
+
+            return tool_class().run({"conversation_id": conversation_id})
+
+        except Exception as e:
+            logger.error(f"Erro em {tool_name}_tool: {str(e)}")
+            return {"error": f"Erro interno: {str(e)}"}
+
+    transfer_tool.__name__ = tool_name
+    return transfer_tool
+
+# Cria as ferramentas de transferência usando a factory
+suporte_tool = create_transfer_tool(SuporteTool, "suporte")
+cadastros_tool = create_transfer_tool(CadastrosTool, "cadastros")
+duvidas_tool = create_transfer_tool(DuvidasTool, "duvidas")
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((ValidationError, ServiceUnavailableError))
+)
+@circuit_breaker(max_failures=3, timeout=60)
 def atribui_cidade_tool(contact_id: str, cidade: str):
-    """Ferramenta para atribuir cidade ao contato no Chatwoot. Requer 'contact_id' e 'cidade'."""
-    print(f"[LOG] atribui_cidade_tool chamado com contact_id={contact_id}, cidade={cidade}")
-    return AtribuiCidadeTool().run({"contact_id": contact_id, "cidade": cidade})
+    """Ferramenta para atribuir cidade ao contato no Chatwoot com validação robusta."""
+    logger.info(f"atribui_cidade_tool chamado com contact_id={contact_id}, cidade={cidade}")
+
+    try:
+        # Validação do contact_id
+        if not validate_contact_id(contact_id):
+            error_msg = f"contact_id inválido: {contact_id}. Use apenas o ID do contexto atual."
+            logger.error(error_msg)
+            raise ValidationError(error_msg)
+
+        # Obtém cidades válidas da configuração
+        cidades_validas = AppConfig.load_valid_cities()
+
+        # Verifica cache para normalização de cidade
+        cache_key = f"city_norm_{cidade.lower().strip()}"
+        if cache_key in city_cache:
+            cidade_final = city_cache[cache_key]
+            logger.info(f"Cidade normalizada do cache: '{cidade}' -> '{cidade_final}'")
+        else:
+            # Normaliza a entrada do usuário
+            cidade_normalizada = cidade.lower().strip()
+
+            if cidade_normalizada in cidades_validas:
+                cidade_final = cidades_validas[cidade_normalizada]
+                city_cache[cache_key] = cidade_final
+                logger.info(f"Cidade normalizada: '{cidade}' -> '{cidade_final}'")
+            else:
+                error_msg = f"Cidade inválida: '{cidade}'. Cidades aceitas: {list(set(cidades_validas.values()))}"
+                logger.error(error_msg)
+                raise ValidationError(error_msg)
+
+        return AtribuiCidadeTool().run({"contact_id": contact_id, "cidade": cidade_final})
+
+    except ValidationError:
+        raise
+    except Exception as e:
+        logger.error(f"Erro em atribui_cidade_tool: {str(e)}")
+        raise ServiceUnavailableError(f"Erro ao atribuir cidade: {str(e)}")
+
 atribui_cidade_tool.__name__ = "atribui_a_cidade"
 
-def contato_categoria_tool(input):
-    """Ferramenta para atualizar o atributo 'categoria' de um contato no Chatwoot."""
-    return ContatoCategoriaTool().run(input)
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((ValidationError, ServiceUnavailableError))
+)
+def contato_categoria_tool(contact_id: str, categoria: str):
+    """Ferramenta para atribuir categoria de atendimento ao contato no Chatwoot."""
+    logger.info(f"contato_categoria_tool chamado com contact_id={contact_id}, categoria={categoria}")
+
+    try:
+        # Validação da categoria
+        if not validate_category(categoria):
+            error_msg = f"Categoria inválida: {categoria}. Use apenas: Passageiro ou Motorista."
+            logger.error(error_msg)
+            raise ValidationError(error_msg)
+
+        # Validação do contact_id
+        if not validate_contact_id(contact_id):
+            error_msg = f"contact_id inválido: {contact_id}. Use o valor EXATO do contexto."
+            logger.error(error_msg)
+            raise ValidationError(error_msg)
+
+        return ContatoCategoriaTool().run({"contact_id": contact_id, "categoria": categoria})
+
+    except ValidationError:
+        raise
+    except Exception as e:
+        logger.error(f"Erro em contato_categoria_tool: {str(e)}")
+        raise ServiceUnavailableError(f"Erro ao atribuir categoria: {str(e)}")
+
 contato_categoria_tool.__name__ = "contato_categoria"
 
-# --- Configuração do Agente ---
+@cache_result(lambda query: f"duckduckgo_{hash(query)}")
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=2, max=5),
+    retry=retry_if_exception_type(ServiceUnavailableError)
+)
+def busca_duckduckgo_tool(query: str):
+    """
+    Ferramenta de busca DuckDuckGo para informações complementares com cache e retry.
+    """
+    logger.info(f"busca_duckduckgo_tool chamado com query={query}")
+
+    try:
+        return duckduckgo_search(query)
+    except Exception as e:
+        logger.error(f"Erro em busca_duckduckgo_tool: {str(e)}")
+        raise ServiceUnavailableError(f"Erro na busca DuckDuckGo: {str(e)}")
+
+busca_duckduckgo_tool.__name__ = "busca_duckduckgo"
+
+# --- Configuração do Agente Melhorado ---
 os.makedirs("tmp", exist_ok=True)
-agent_storage = "tmp/agents.db"
+agent_storage = AppConfig.AGENT_STORAGE_PATH
 
-# INSTRUÇÕES ATUALIZADAS: Agora o agente sabe que deve procurar dados no contexto.
+# --- INICIALIZAÇÃO AUTOMÁTICA DA BASE DE CONHECIMENTO ---
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10)
+)
+def ensure_knowledge_base_startup():
+    """
+    Garante que a base de conhecimento esteja populada na inicialização.
+    Implementação robusta com retry e tratamento de erro detalhado.
+    """
+    logger.info("[STARTUP] Verificando base de conhecimento...")
+
+    try:
+        # Verifica se já existe dados na base
+        storage = SqliteStorage(table_name="knowledge", db_file=agent_storage)
+        existing_sessions = storage.get_all_sessions()
+
+        if existing_sessions and len(existing_sessions) > 0:
+            logger.info(f"[STARTUP] ✅ Base de conhecimento OK com {len(existing_sessions)} documentos")
+            return True
+
+        logger.info(f"[STARTUP] ⚠️  Base de conhecimento vazia. Importando dados...")
+
+        # Importa dados do knowledge_base.md
+        knowledge_file = AppConfig.KNOWLEDGE_BASE_FILE
+        if not os.path.exists(knowledge_file):
+            logger.error(f"[STARTUP] ❌ Arquivo {knowledge_file} não encontrado")
+            raise KnowledgeBaseError(f"Arquivo {knowledge_file} não encontrado")
+
+        # Lê e processa o arquivo markdown
+        with open(knowledge_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        if not content.strip():
+            logger.error(f"[STARTUP] ❌ Arquivo {knowledge_file} está vazio")
+            raise KnowledgeBaseError(f"Arquivo {knowledge_file} está vazio")
+
+        # Divide por seções usando o padrão # Título
+        from agno.storage.session.agent import AgentSession
+
+        sections = []
+        current_section = {"title": "", "content": ""}
+
+        for line in content.split('\n'):
+            if line.startswith('# ') and not line.startswith('##'):
+                # Nova seção encontrada
+                if current_section["title"]:  # Salva seção anterior se existir
+                    sections.append(current_section)
+                current_section = {
+                    "title": line[2:].strip(),  # Remove '# '
+                    "content": ""
+                }
+            else:
+                # Adiciona linha ao conteúdo da seção atual
+                current_section["content"] += line + '\n'
+
+        # Adiciona a última seção
+        if current_section["title"]:
+            sections.append(current_section)
+
+        # Insere seções no banco usando AgentSession
+        successful_inserts = 0
+        failed_inserts = []
+        for i, section in enumerate(sections):
+            if section["title"] and section["content"].strip():
+                try:
+                    session = AgentSession(
+                        session_id=f"kb_{i+1}",
+                        agent_id="knowledge_base",
+                        user_id="system"
+                    )
+                    # Armazena os dados da seção no session_data
+                    session.session_data = {
+                        "title": section["title"],
+                        "content": section["content"].strip(),
+                        "created_at": datetime.now().isoformat(),
+                        "keywords": extract_keywords(section["content"])
+                    }
+                    storage.upsert(session)
+                    logger.info(f"[STARTUP] Seção inserida: {section['title']}")
+                    successful_inserts += 1
+                except Exception as e:
+                    logger.error(f"[STARTUP] Erro ao inserir seção '{section['title']}': {e}")
+                    failed_inserts.append({"title": section["title"], "error": str(e)})
+                    continue
+        if failed_inserts:
+            logger.warning(f"[STARTUP] Falha ao inserir {len(failed_inserts)} seções: {[f['title'] for f in failed_inserts]}")
+
+        # Verifica se a importação funcionou
+        final_sessions = storage.get_all_sessions()
+        logger.info(f"[STARTUP] ✅ Base de conhecimento importada! {successful_inserts}/{len(sections)} documentos inseridos.")
+
+        if successful_inserts == 0:
+            raise KnowledgeBaseError("Nenhum documento foi inserido na base de conhecimento")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"[STARTUP] ❌ Erro ao garantir base de conhecimento: {e}")
+        raise
+
+def extract_keywords(content: str) -> List[str]:
+    """Extrai palavras-chave do conteúdo para melhorar a busca"""
+    # Implementação simples de extração de palavras-chave
+    # Em uma implementação real, você poderia usar NLP mais avançado
+    words = content.lower().split()
+    # Filtra palavras comuns e mantém apenas palavras com mais de 3 caracteres
+    stop_words = {'de', 'para', 'com', 'que', 'um', 'uma', 'o', 'a', 'em', 'do', 'da', 'se', 'na', 'por', 'como', 'mais', 'não', 'é', 'para', 'ao', 'dos', 'das', 'ou', 'sem', 'mas', 'aos', 'seu', 'sua', 'ele', 'ela', 'você'}
+    keywords = [word.strip('.,!?;:()[]{}"\'') for word in words if len(word) > 3 and word not in stop_words]
+    return list(set(keywords))[:20]  # Retorna até 20 palavras-chave únicas
+
+# --- Ferramenta de busca na base de conhecimento local melhorada ---
+@cache_result(lambda query: f"kb_search_{hash(query)}")
+def busca_knowledge_base_tool(query: str):
+    """
+    Busca na base de conhecimento local da Urban usando palavras-chave no título ou conteúdo.
+    Implementação melhorada com cache e busca mais inteligente.
+    """
+    logger.info(f"busca_knowledge_base_tool chamado com query={query}")
+
+    try:
+        # Conecta na mesma tabela que o script de importação usa
+        storage = SqliteStorage(table_name="knowledge", db_file=agent_storage)
+
+        # Busca por palavras-chave no título ou conteúdo (case-insensitive)
+        query_lower = query.lower()
+        logger.debug(f"Query convertida para lowercase: {query_lower}")
+
+        # Cria uma lista de palavras-chave da query para busca mais flexível
+        keywords = [word.strip() for word in query_lower.split() if len(word.strip()) > 2]
+        logger.debug(f"Palavras-chave extraídas: {keywords}")
+
+        # Usa o método get_all_sessions do SqliteStorage
+        all_sessions = storage.get_all_sessions()
+        logger.debug(f"Total de sessões encontradas: {len(all_sessions) if all_sessions else 0}")
+
+        # Filtra resultados que contenham qualquer palavra-chave no título ou conteúdo
+        matches = []
+        for session in all_sessions:
+            if hasattr(session, 'session_data') and session.session_data:
+                session_data = session.session_data
+                title = session_data.get("title", "").lower()
+                content = session_data.get("content", "").lower()
+
+                # Busca flexível: se qualquer palavra-chave estiver no título ou conteúdo
+                match_found = False
+                match_reasons = []
+                relevance_score = 0
+
+                for keyword in keywords:
+                    if keyword in title:
+                        match_found = True
+                        match_reasons.append(f"'{keyword}' no título")
+                        relevance_score += 3  # Peso maior para matches no título
+                    elif keyword in content:
+                        match_found = True
+                        match_reasons.append(f"'{keyword}' no conteúdo")
+                        relevance_score += 1
+
+                # Bonus para matches exatos de frases
+                if query_lower in title:
+                    relevance_score += 5
+                    match_reasons.append("frase exata no título")
+                elif query_lower in content:
+                    relevance_score += 3
+                    match_reasons.append("frase exata no conteúdo")
+
+                if match_found:
+                    logger.debug(f"MATCH encontrado! Título: '{session_data.get('title', '')}', Razões: {match_reasons}")
+                    matches.append({
+                        "title": session_data.get("title", ""),
+                        "content": session_data.get("content", ""),
+                        "relevance": relevance_score,
+                        "match_reasons": match_reasons,
+                        "keywords": session_data.get("keywords", [])
+                    })
+
+        # Ordena por relevância (maior score primeiro)
+        matches.sort(key=lambda x: x["relevance"], reverse=True)
+        logger.debug(f"Total de matches encontrados: {len(matches)}")
+
+        if matches:
+            logger.info(f"Encontrados {len(matches)} resultados na knowledge base")
+            best_match = matches[0]
+            logger.info(f"Melhor resultado: '{best_match['title']}' (relevância: {best_match['relevance']})")
+
+            # Retorna o resultado mais relevante com informações adicionais
+            return {
+                "found": True,
+                "source": "knowledge_base",
+                "title": best_match["title"],
+                "content": best_match["content"],
+                "relevance": best_match["relevance"],
+                "match_reasons": best_match["match_reasons"],
+                "keywords": best_match["keywords"]
+            }
+        else:
+            logger.info(f"Nenhum resultado encontrado na knowledge base para: {query}")
+            logger.debug(f"Tentativa com palavras-chave: {keywords}")
+            return {
+                "found": False,
+                "message": "Informação não encontrada na base de conhecimento local"
+            }
+
+    except Exception as e:
+        logger.error(f"Erro ao buscar na knowledge base: {e}")
+        return {
+            "found": False,
+            "error": f"Erro na busca local: {str(e)}"
+        }
+
+busca_knowledge_base_tool.__name__ = "busca_knowledge_base"
+
+# --- Melhorias na Memória do Agente sem Aumentar Histórico ---
+class MemoryOptimizedAgent(Agent):
+    """
+    Agente com memória otimizada que não depende apenas do histórico de mensagens.
+    Implementa:
+    1. Memória semântica baseada em embeddings (simulado)
+    2. Memória de fatos extraídos das conversas
+    3. Memória de contexto persistente
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.semantic_memory = {}  # Memória semântica (conceitos)
+        self.factual_memory = {}   # Memória de fatos (informações específicas)
+        self.context_memory = {}   # Memória de contexto por sessão
+
+    def extract_facts_from_conversation(self, message: str, session_id: str) -> List[str]:
+        """Extrai fatos importantes da mensagem do usuário"""
+        # Implementação simples - em produção, usar NLP mais avançado
+        facts = []
+
+        # Padrões para extrair informações
+        patterns = {
+            "cidade": r"mor[oa] em ([\w\s]+)|de ([\w\s]+)|cidade ([\w\s]+)",
+            "categoria": r"sou (passageiro|motorista)|atendimento como (passageiro|motorista)",
+            "contato": r"meu (telefone|celular|email) é ([\w\s@.]+)",
+            "problema": r"problema com ([\w\s]+)|erro ([\w\s]+)|não consigo ([\w\s]+)"
+        }
+
+        import re
+        for fact_type, pattern in patterns.items():
+            matches = re.findall(pattern, message.lower())
+            if matches:
+                for match in matches:
+                    # Pega o grupo não vazio
+                    fact_value = next((m for m in match if m.strip()), "")
+                    if fact_value:
+                        facts.append(f"{fact_type}: {fact_value}")
+
+        return facts
+
+    def update_memory(self, message: str, session_id: str, context: dict = None):
+        """Atualiza as diferentes memórias do agente"""
+        # Extrai fatos da mensagem
+        facts = self.extract_facts_from_conversation(message, session_id)
+
+        # Atualiza memória de fatos
+        if session_id not in self.factual_memory:
+            self.factual_memory[session_id] = set()
+
+        for fact in facts:
+            self.factual_memory[session_id].add(fact)
+            logger.debug(f"Fato extraído e armazenado: {fact}")
+
+        # Atualiza memória de contexto
+        if context:
+            if session_id not in self.context_memory:
+                self.context_memory[session_id] = {}
+
+            # Armazena informações importantes do contexto
+            important_keys = ["custom_attributes_city", "custom_attributes_category", "contact_id", "conversation_id"]
+            for key in important_keys:
+                if key in context and context[key]:
+                    self.context_memory[session_id][key] = context[key]
+
+    def get_relevant_memory(self, session_id: str, query: str) -> str:
+        """Recupera memória relevante para a consulta atual"""
+        memory_parts = []
+
+        # Memória factual
+        if session_id in self.factual_memory and self.factual_memory[session_id]:
+            memory_parts.append("Fatos conhecidos:")
+            for fact in self.factual_memory[session_id]:
+                memory_parts.append(f"- {fact}")
+
+        # Memória de contexto
+        if session_id in self.context_memory and self.context_memory[session_id]:
+            memory_parts.append("Contexto persistente:")
+            for key, value in self.context_memory[session_id].items():
+                memory_parts.append(f"- {key}: {value}")
+
+        return "\n".join(memory_parts) if memory_parts else ""
+
+    def run(self, message, session_id=None, context=None, **kwargs):
+        """Override do método run para incluir memória otimizada"""
+        # Atualiza memória antes de processar
+        if session_id:
+            self.update_memory(message, session_id, context)
+
+        # Obtém memória relevante
+        relevant_memory = self.get_relevant_memory(session_id or "default", message)
+
+        # Adiciona memória relevante ao contexto
+        enhanced_context = context.copy() if context else {}
+        if relevant_memory:
+            enhanced_context["agent_memory"] = relevant_memory
+
+        # Chama o método original com contexto aprimorado
+        return super().run(message=message, session_id=session_id, context=enhanced_context, **kwargs)
+
+# INSTRUÇÕES SIMPLIFICADAS: Concisas e diretas como no n8n
 alice_instructions = [
-    # Princípios Fundamentais
-    "Você é Alice, assistente virtual da Urban. Seja sempre humana, calorosa, proativa e, acima de tudo, prestativa.",
-    "Sempre que possível, responda diretamente usando a base de conhecimento e o contexto atual. Só faça perguntas adicionais se realmente não houver resposta na base de conhecimento ou contexto. Nunca peça confirmação de dados que já estejam presentes no contexto ou na base de conhecimento.",
-    "Antes de perguntar qualquer coisa ao usuário, SEMPRE revise o histórico da conversa e as memórias armazenadas. Nunca peça informações (como cidade ou categoria) que já estejam presentes no contexto, histórico ou memórias do usuário. Se a cidade ou categoria já estiverem no contexto ou histórico, NUNCA pergunte novamente, apenas siga o fluxo normalmente.",
-    "Se o campo `custom_attributes_category` existir no contexto e não for vazio (qualquer string), considere a categoria já registrada e NUNCA pergunte novamente, nem peça confirmação. Nunca acione a ferramenta de categoria se o campo já estiver presente. Nunca ignore o valor do campo `custom_attributes_category` do contexto. Sempre confie nele, mesmo que pareça estranho ou diferente do esperado.",
-    "Nunca acione a ferramenta de categoria se a categoria já estiver presente no contexto. Apenas siga o fluxo normalmente.",
-    "Sempre tente responder usando sua base de conhecimento e informações do contexto. Só ofereça transferência para suporte, cadastros ou dúvidas se realmente não souber a resposta ou se o usuário pedir explicitamente.",
-    "Se não souber a resposta, pergunte ao usuário se deseja ser transferido para o time competente (suporte, cadastros ou dúvidas). Só acione a ferramenta de transferência após o usuário confirmar que deseja ser transferido.",
-    "Ao acionar qualquer ferramenta de transferência (suporte, cadastros, duvidas), utilize EXCLUSIVAMENTE o valor do campo 'conversation_id' presente no contexto ATUAL. NUNCA use qualquer outro valor, mesmo que tenha visto em mensagens anteriores, histórico, memória ou qualquer outro lugar. Apenas use o valor literal do campo 'conversation_id' do contexto recebido nesta mensagem.",
-    "Ao acionar as ferramentas de atribuição (atribui_a_cidade, contato_categoria), use sempre os dados do contexto atual (ex: contact_id, cidade, categoria). Nunca tente inferir, buscar em outro lugar ou inventar valores. Nunca use 'undefined' como contact_id. Se não houver contact_id no contexto, informe o usuário e ofereça transferência, mas nunca acione a ferramenta sem o contact_id literal do contexto.",
-    "Exemplo de erro a evitar: Não acione a ferramenta contato_categoria com contact_id=undefined. Sempre use o valor literal do campo contact_id do contexto recebido nesta mensagem. Se não houver, não acione a ferramenta e informe o usuário.",
-    "Se faltar algum dado essencial (ex: contact_id), informe o usuário que não é possível executar a ação e ofereça transferência para um especialista, mas NÃO tente acionar a ferramenta sem os dados.",
-    "Sempre analise o histórico da conversa e os dados de contexto (como contact_id, custom_attributes_city) antes de fazer uma pergunta. O `contact_id` é essencial para usar ferramentas como `atribui_a_cidade`.",
-    # (Removido: instrução sobre a ferramenta think. O agente deve usar apenas memória e raciocínio nativos do Agno.)
-
-    # Fluxo de Atendimento Corrigido com Tratamento de Falhas
-    "ETAPA 1: Coleta de Dados Essenciais. Seu primeiro objetivo é garantir que você tenha a cidade e a categoria do usuário.",
-    "1. Verifique a Cidade: Só pergunte a cidade se o campo `custom_attributes_city` NÃO estiver presente ou estiver vazio no contexto. Se estiver presente e não for vazio (qualquer string), NÃO pergunte novamente.",
-    "2. Verifique a Categoria: Só pergunte a categoria se o campo `custom_attributes_category` NÃO estiver presente ou estiver vazio no contexto. Se estiver presente e não for vazio (qualquer string), NÃO pergunte novamente.",
-    "Exemplo de contexto recebido: {'custom_attributes_city': 'Colider', ...}. Se o campo `custom_attributes_city` existir e não for vazio, considere a cidade já registrada e NÃO pergunte novamente, mesmo que o valor seja qualquer string.",
-    "Exemplo de contexto recebido: {'custom_attributes_category': 'Motorista', ...}. Se o campo `custom_attributes_category` existir e não for vazio, considere a categoria já registrada e NÃO pergunte novamente, mesmo que o valor seja qualquer string.",
-    "Nunca ignore o valor do campo `custom_attributes_city` do contexto. Sempre confie nele, mesmo que pareça estranho ou diferente do esperado.",
-    "2. Use a Ferramenta `atribui_a_cidade`: Assim que o usuário responder, tente usar a ferramenta `atribui_a_cidade`. Para isso, você PRECISA do `contact_id` (que deve estar no contexto) e da `cidade`.",
-    "   - Se a ferramenta for executada com sucesso, confirme ao usuário: 'Obrigada! Cidade registrada.' e passe para o próximo passo.",
-    "   - Se a ferramenta FALHAR por falta do `contact_id`, você NÃO DEVE perguntar a cidade novamente. Informe o problema: 'Puxa, não consegui identificar seu contato para salvar a cidade. Vou te transferir para um especialista para resolver isso, tudo bem?'.",
-    "3. Verifique a Categoria: Depois de ter a cidade, verifique a categoria (`custom_attributes_category`) e colete se necessário.",
-    "4. Prossiga: Somente quando tiver confirmado tanto a cidade quanto a categoria, você pode prosseguir para a ETAPA 2.",
+    "Você é Alice, assistente virtual da Urban. Seja humana, calorosa e prestativa.",
+    "SEMPRE use dados do contexto atual PRIMEIRO. Nunca pergunte informações já presentes no contexto.",
+    "🔴 REGRA CRÍTICA DE VALIDAÇÃO DE ATRIBUTOS (flags booleanas):",
+    "- Se cidade_preenchida=True: NUNCA pergunte a cidade, nem em saudações, nem em qualquer contexto. Apenas cumprimente ou responda normalmente.",
+    "- Se categoria_preenchida=True: NUNCA pergunte a categoria, nem em saudações, nem em qualquer contexto.",
+    "- Se cidade_preenchida=False: SEMPRE pergunte a cidade no final da resposta.",
+    "- Se categoria_preenchida=False E cidade_preenchida=True: SEMPRE pergunte APENAS a categoria.",
+    "CATEGORIZAÇÃO SEQUENCIAL: REGRA DE OURO - Pergunte UMA coisa por vez, SEMPRE, mesmo em saudações, empatia ou qualquer contexto:",
+    "1. Se cidade_preenchida=False: Responda a pergunta ou cumprimente normalmente, MAS SEMPRE pergunte APENAS a cidade no final se 'cidade_preenchida': False . Exemplo: 'Bom dia! Como posso ajudar você hoje? Só preciso saber, de qual cidade você está falando?'",
+    "2. Se categoria_preenchida=False E cidade_preenchida=True: Pergunte APENAS a categoria. Exemplo: 'Seu atendimento é como Passageiro ou Motorista?'",
+    "3. Se cidade_preenchida=True E categoria_preenchida=True: Responda normalmente SEM perguntar cidade ou categoria. Exemplo: 'Olá! Como posso ajudar você hoje?'",
+    "4. NUNCA faça as duas perguntas na mesma mensagem. Sempre uma por vez, em sequência.",
+    "5. NUNCA encerre uma resposta sem perguntar cidade ou categoria se cidade_preenchida ou categoria_preenchida forem False, mesmo em mensagens de empatia, saudação ou conversa social. Isso é prioridade máxima.",
+    "EXEMPLO DE CONTEXTO CORRETO (não perguntar cidade): contexto = {'cidade_preenchida': True, 'categoria_preenchida': True, ...} → Responda apenas: 'Olá! Como posso ajudar você hoje?' (NÃO pergunte cidade nem categoria)",
+    "EXEMPLO DE CONTEXTO QUE DEVE PERGUNTAR CIDADE: contexto = {'cidade_preenchida': False, ...} → Pergunte a cidade no final.",
+    "EXEMPLO DE CONTEXTO QUE DEVE PERGUNTAR CATEGORIA: contexto = {'cidade_preenchida': True, 'categoria_preenchida': False, ...} → Pergunte apenas a categoria.",
+    "CONHECIMENTO: SEMPRE consulte PRIMEIRO a base de conhecimento local usando `busca_knowledge_base` antes de qualquer outra ferramenta.",
+    "BUSCA INTELIGENTE: Se a base local não tiver a resposta, use `busca_duckduckgo` para horários de transporte, localizações, problemas técnicos ou informações sobre cidades.",
+    "Ao usar a ferramenta busca_duckduckgo, sempre formule a query de forma descritiva e enciclopédica, incluindo contexto, unidade de medida ou idioma alternativo se necessário. Exemplo: 'altura da torre eiffel em metros', 'história da Urban', 'Eiffel Tower height in meters'. Se não houver resposta, tente uma variação mais detalhada ou em inglês.",
+    "🔴 REGRA CRÍTICA DE IDS - USE SEMPRE AS VARIÁVEIS EXPLÍCITAS DO CONTEXTO:",
+    "- Para ferramentas de transferência (suporte, cadastros, duvidas): use o valor de CONVERSATION_ID_ATUAL do contexto",
+    "- Para ferramentas de atribuição (atribui_cidade, contato_categoria): use o valor de CONTACT_ID_ATUAL do contexto",
+    "- NUNCA invente IDs, NUNCA use valores de exemplo, SEMPRE use APENAS o valor real de CONTACT_ID_ATUAL e CONVERSATION_ID_ATUAL extraído do contexto da payload. Sempre use exatamente o valor recebido, nunca um exemplo fixo.",
+    "ATRIBUIÇÃO DE CIDADE - REGRA CRÍTICA: Para atribuir cidade, use APENAS os nomes EXATOS desta lista (sem acento, primeira letra maiúscula): Matupa, Guaranta, Peixoto, Monte Verde, Bandeirantes, Alta Floresta, Nova Canaa, Colider. Se usuário disser variações como 'Matupá', 'peixoto', 'alta floresta', normalize para o nome EXATO da lista (Matupa, Peixoto, Alta Floresta). NUNCA use nomes diferentes desta lista.",
+    "FORMATO CIDADE: Sempre use atribui_cidade_tool(contact_id=CONTACT_ID_ATUAL, cidade='Matupa') com nome EXATO da lista, nunca use JSON ou outros formatos.",
+    "Responda diretamente usando conhecimento quando possível. Use busca_knowledge_base como primeira opção, busca_duckduckgo como segunda opção. Só ofereça transferência como último recurso.",
+    "MEMÓRIA: Use informações da memória do agente (fatos e contexto persistente) para personalizar respostas e evitar perguntas repetitivas.",
 ]
 
-alice_agent = Agent(
+# Função para transformar o contexto em texto dinâmico
+def contexto_para_texto(context: dict) -> str:
+    def sim_nao(val):
+        return "Sim" if val else "Não"
+    linhas = ["[CONTEXT]"]
+    if context.get("user_id"): linhas.append(f"Usuário: {context.get('user_id')}")
+    if context.get("contact_id"): linhas.append(f"Contact ID: {context.get('contact_id')}")
+    if context.get("conversation_id"): linhas.append(f"Conversation ID: {context.get('conversation_id')}")
+    if context.get("custom_attributes_city"): linhas.append(f"Cidade: {context.get('custom_attributes_city')}")
+    if context.get("custom_attributes_category"): linhas.append(f"Categoria: {context.get('custom_attributes_category')}")
+    if "CIDADE_JA_INFORMADA" in context:
+        linhas.append(f"Cidade já informada: {sim_nao(context.get('CIDADE_JA_INFORMADA'))}")
+    if "CATEGORIA_JA_INFORMADA" in context:
+        linhas.append(f"Categoria já informada: {sim_nao(context.get('CATEGORIA_JA_INFORMADA'))}")
+
+    # Adiciona memória do agente se disponível
+    if context.get("agent_memory"):
+        linhas.append("[AGENT_MEMORY]")
+        linhas.append(context.get("agent_memory"))
+        linhas.append("[/AGENT_MEMORY]")
+
+    linhas.append("[/CONTEXT]\n")
+    return "\n".join(linhas)
+
+# Wrapper para garantir que o prompt sempre começa com o contexto textual
+class AliceAgentWithContext(MemoryOptimizedAgent):
+    def run(self, message, session_id=None, context=None, **kwargs):
+        context = context or {}
+        contexto_textual = contexto_para_texto(context)
+        # Junta contexto, instruções e mensagem do usuário
+        prompt = f"{contexto_textual}\n" + "\n".join(alice_instructions) + f"\n\nUsuário: {message}"
+        # Chama o modelo com o prompt montado
+        return super().run(message=prompt, session_id=session_id, context=context, **kwargs)
+
+alice_agent = AliceAgentWithContext(
     name="Alice",
-    model=OpenAIChat(id="gpt-4o-mini", api_key=api_key),
+    model=OpenAIChat(id="gpt-4o", api_key=api_key),
     tools=[
+        busca_knowledge_base_tool,
         suporte_tool,
         cadastros_tool,
         duvidas_tool,
         atribui_cidade_tool,
-        contato_categoria_tool
+        contato_categoria_tool,
+        busca_duckduckgo_tool
     ],
     instructions=alice_instructions,
     storage=SqliteStorage(table_name="alice_agent", db_file=agent_storage),
-    memory=AgentMemory(
-        db=SqliteMemoryDb(table_name="alice_memory", db_file=agent_storage),
-        create_user_memories=True,
-        update_user_memories_after_run=True,
-        create_session_summary=True,
-        update_session_summary_after_run=True,
-        add_history_to_messages=True,
-        num_history_runs=10,
-    ),
-    knowledge=True,
+    add_history_to_messages=True,
+    num_history_responses=3,  # Mantido baixo, mas com memória otimizada
     markdown=True,
-    enable_agentic_memory=True,
-    enable_session_summaries=True,
-    # O raciocínio e memória agora são nativos do Agno, sem ReasoningTools ou think.
 )
 
-# --- Playground Customizado ---
+# --- Playground Customizado Melhorado ---
 
 class EmotionData(BaseModel):
     emocao_primaria: Optional[str] = None
@@ -140,65 +751,328 @@ class CustomRunPayload(BaseModel):
     custom_attributes_city: Optional[str] = None
     custom_attributes_category: Optional[str] = None
 
+    @validator('conversation_id')
+    def validate_conversation_id_field(cls, v):
+        if v and not validate_conversation_id(v):
+            raise ValueError('conversation_id inválido')
+        return v
+
+    @validator('contact_id')
+    def validate_contact_id_field(cls, v):
+        if v and not validate_contact_id(v):
+            raise ValueError('contact_id inválido')
+        return v
+
 class CustomPlayground(Playground):
     def get_app(self):
         app = super().get_app()
+
+        # Adiciona middlewares
+        app.add_middleware(GZipMiddleware)
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
         app.state.agents = {agent.name: agent for agent in self.agents}
+        app.state.limiter = limiter
+
         routes_to_keep = [
             route for route in app.routes if getattr(route, "path", "") != "/v1/playground/agents/{agent_id}/runs"
         ]
         app.router.routes = routes_to_keep
 
+        @app.exception_handler(RateLimitExceeded)
+        async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests", "message": "Limite de requisições excedido. Tente novamente mais tarde."}
+            )
+
+        @app.exception_handler(ValidationError)
+        async def validation_exception_handler(request: Request, exc: ValidationError):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Validation Error", "message": str(exc)}
+            )
+
+        @app.exception_handler(ServiceUnavailableError)
+        async def service_unavailable_handler(request: Request, exc: ServiceUnavailableError):
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Service Unavailable", "message": str(exc)}
+            )
 
         @app.post("/v1/playground/agents/{agent_id}/runs", tags=["Playground"])
+        @limiter.limit("100/minute")
         def run_agent_custom(agent_id: str, payload: CustomRunPayload, request: Request):
+            start_time = time.time()
+            logger.info(f"Requisição recebida - Agent: {agent_id}, Session: {payload.session_id}")
+
             agents_dict: Dict[str, Agent] = request.app.state.agents
             agent = agents_dict.get(agent_id)
             if not agent:
-                return {"error": f"Agent with ID '{agent_id}' not found."}
+                logger.error(f"Agente não encontrado: {agent_id}")
+                raise HTTPException(status_code=404, detail=f"Agent with ID '{agent_id}' not found.")
+
+            # EXTRAÇÃO CRÍTICA: Quebra payload em variáveis explícitas para garantir uso correto
+            current_conversation_id = payload.conversation_id
+            current_contact_id = payload.contact_id
+            current_user_id = payload.user_id
+            current_city = payload.custom_attributes_city
+            current_category = payload.custom_attributes_category
 
             context = {
-                "user_id": payload.user_id,
-                "contact_id": payload.contact_id,
-                # CORREÇÃO: Usa .model_dump() para ser compatível com Pydantic v2
+                "user_id": current_user_id,
+                "contact_id": current_contact_id,
                 "dados_emocao": payload.dados_emocao.model_dump() if payload.dados_emocao else None,
-                "conversation_id": payload.conversation_id,
-                "custom_attributes_city": payload.custom_attributes_city,
-                "custom_attributes_category": payload.custom_attributes_category,
+                "conversation_id": current_conversation_id,
+                "custom_attributes_city": current_city,
+                "custom_attributes_category": current_category,
+                # VARIÁVEIS EXPLÍCITAS: Para garantir que o agente sempre use os valores corretos
+                "CONVERSATION_ID_ATUAL": current_conversation_id,
+                "CONTACT_ID_ATUAL": current_contact_id,
+                "USER_ID_ATUAL": current_user_id,
+                "CIDADE_ATUAL": current_city,
+                "CATEGORIA_ATUAL": current_category,
+                # VALIDAÇÕES CRÍTICAS: Determina se cidade e categoria estão realmente presentes
+                "CIDADE_JA_INFORMADA": bool(current_city and current_city.strip() and current_city.strip() != ""),
+                "CATEGORIA_JA_INFORMADA": bool(current_category and current_category.strip() and current_category.strip() != ""),
             }
-            print(f"[LOG] Contexto recebido no endpoint: {context}")
 
-            result = agent.run(
-                message=payload.message,
-                session_id=payload.session_id,
-                context=context
-            )
+            logger.debug(f"Contexto recebido no endpoint: {context}")
+            logger.debug(f"Variáveis extraídas: conversation_id={current_conversation_id}, contact_id={current_contact_id}")
+            logger.debug(f"Validações: CIDADE_JA_INFORMADA={context['CIDADE_JA_INFORMADA']}, CATEGORIA_JA_INFORMADA={context['CATEGORIA_JA_INFORMADA']}")
 
-            # Retorno robusto: trata dict, objeto com .dict()/.model_dump(), ou string
-            import collections.abc
-            def to_json_safe(obj):
-                if isinstance(obj, (str, int, float, bool)) or obj is None:
-                    return obj
-                if isinstance(obj, dict):
-                    return {k: to_json_safe(v) for k, v in obj.items() if not callable(v)}
-                if isinstance(obj, (list, tuple, set)):
-                    return [to_json_safe(v) for v in obj]
-                # Para objetos customizados, tenta converter para string
-                return str(obj)
+            try:
+                result = agent.run(
+                    message=payload.message,
+                    session_id=payload.session_id,
+                    context=context
+                )
 
-            if hasattr(result, "dict"):
-                return to_json_safe(result.dict())
-            if hasattr(result, "model_dump"):
-                return to_json_safe(result.model_dump())
-            if isinstance(result, dict):
-                return to_json_safe(result)
-            return {"result": to_json_safe(result)}
+                # Métricas de performance
+                processing_time = time.time() - start_time
+                logger.info(f"Requisição processada em {processing_time:.2f}s")
+
+                # Retorno robusto: trata dict, objeto com .dict()/.model_dump(), ou string
+                import collections.abc
+                def to_json_safe(obj):
+                    if isinstance(obj, (str, int, float, bool)) or obj is None:
+                        return obj
+                    if isinstance(obj, dict):
+                        return {k: to_json_safe(v) for k, v in obj.items() if not callable(v)}
+                    if isinstance(obj, (list, tuple, set)):
+                        return [to_json_safe(v) for v in obj]
+                    # Para objetos customizados, tenta converter para string
+                    return str(obj)
+
+                if hasattr(result, "dict"):
+                    response_data = to_json_safe(result.dict())
+                elif hasattr(result, "model_dump"):
+                    response_data = to_json_safe(result.model_dump())
+                elif isinstance(result, dict):
+                    response_data = to_json_safe(result)
+                else:
+                    response_data = {"result": to_json_safe(result)}
+
+                # Adiciona métricas à resposta
+                response_data["processing_time"] = round(processing_time, 2)
+                response_data["timestamp"] = datetime.now().isoformat()
+
+                return response_data
+
+            except Exception as e:
+                logger.error(f"Erro ao processar requisição: {str(e)}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+        @app.get("/health", tags=["Health"])
+        def health_check():
+            """Health check endpoint para monitoramento com informações detalhadas"""
+            try:
+                # Verifica se a base de conhecimento está acessível
+                storage = SqliteStorage(table_name="knowledge", db_file=agent_storage)
+                sessions = storage.get_all_sessions()
+                kb_status = "healthy" if sessions else "empty"
+
+                return {
+                    "status": "healthy",
+                    "agent": "Alice",
+                    "tools": ["busca_knowledge_base", "suporte", "cadastros", "duvidas", "atribui_a_cidade", "contato_categoria", "busca_duckduckgo"],
+                    "version": "3.0",
+                    "features": ["chatwoot_integration", "knowledge_base", "duckduckgo_search", "intelligent_fallback", "optimized_memory", "circuit_breaker", "rate_limiting"],
+                    "knowledge_base": {
+                        "status": kb_status,
+                        "document_count": len(sessions) if sessions else 0
+                    },
+                    "cache": {
+                        "search_cache_size": len(search_cache),
+                        "city_cache_size": len(city_cache)
+                    },
+                    "timestamp": datetime.now().isoformat()
+                }
+            except Exception as e:
+                logger.error(f"Erro no health check: {str(e)}")
+                return {
+                    "status": "unhealthy",
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+
+        @app.get("/debug/knowledge", tags=["Debug"])
+        def debug_knowledge_base():
+            """Debug endpoint para verificar status da base de conhecimento"""
+            try:
+                storage = SqliteStorage(table_name="knowledge", db_file=agent_storage)
+                sessions = storage.get_all_sessions()
+
+                if not sessions:
+                    return {
+                        "status": "empty",
+                        "count": 0,
+                        "titles": [],
+                        "message": "Base de conhecimento vazia"
+                    }
+
+                titles = []
+                keywords_summary = {}
+                for session in sessions:
+                    if hasattr(session, 'session_data') and session.session_data:
+                        title = session.session_data.get("title", "Sem título")
+                        titles.append(title)
+
+                        # Coleta estatísticas de palavras-chave
+                        keywords = session.session_data.get("keywords", [])
+                        for keyword in keywords:
+                            keywords_summary[keyword] = keywords_summary.get(keyword, 0) + 1
+
+                return {
+                    "status": "populated",
+                    "count": len(sessions),
+                    "titles": titles,
+                    "keywords_summary": dict(sorted(keywords_summary.items(), key=lambda x: x[1], reverse=True)[:20]),
+                    "message": f"Base de conhecimento com {len(sessions)} documentos"
+                }
+
+            except Exception as e:
+                logger.error(f"Erro no debug endpoint: {str(e)}")
+                return {
+                    "status": "error",
+                    "count": 0,
+                    "titles": [],
+                    "error": str(e),
+                    "message": f"Erro ao acessar base de conhecimento: {e}"
+                }
+
+        @app.post("/debug/reload-knowledge", tags=["Debug"])
+        def reload_knowledge_base():
+            """Força recarregamento da base de conhecimento"""
+            try:
+                result = ensure_knowledge_base_startup()
+                if result:
+                    storage = SqliteStorage(table_name="knowledge", db_file=agent_storage)
+                    sessions = storage.get_all_sessions()
+                    return {
+                        "status": "success",
+                        "count": len(sessions) if sessions else 0,
+                        "message": f"Base de conhecimento recarregada com {len(sessions) if sessions else 0} documentos"
+                    }
+                else:
+                    return {
+                        "status": "failed",
+                        "count": 0,
+                        "message": "Falha ao recarregar base de conhecimento"
+                    }
+            except Exception as e:
+                logger.error(f"Erro ao recarregar base de conhecimento: {str(e)}")
+                return {
+                    "status": "error",
+                    "count": 0,
+                    "error": str(e),
+                    "message": f"Erro ao recarregar: {e}"
+                }
+
+        @app.get("/debug/memory/{session_id}", tags=["Debug"])
+        def debug_agent_memory(session_id: str):
+            """Debug endpoint para verificar memória do agente"""
+            try:
+                if not hasattr(alice_agent, 'factual_memory'):
+                    return {"status": "not_implemented", "message": "Memória do agente não disponível"}
+
+                factual_memory = alice_agent.factual_memory.get(session_id, set())
+                context_memory = alice_agent.context_memory.get(session_id, {})
+
+                return {
+                    "status": "success",
+                    "session_id": session_id,
+                    "factual_memory": list(factual_memory),
+                    "context_memory": context_memory,
+                    "factual_memory_count": len(factual_memory)
+                }
+            except Exception as e:
+                logger.error(f"Erro ao acessar memória do agente: {str(e)}")
+                return {
+                    "status": "error",
+                    "error": str(e),
+                    "message": f"Erro ao acessar memória: {e}"
+                }
+
+        @app.get("/debug/cache", tags=["Debug"])
+        def debug_cache():
+            """Debug endpoint para verificar status do cache"""
+            return {
+                "search_cache": {
+                    "size": len(search_cache),
+                    "maxsize": search_cache.maxsize,
+                    "ttl": search_cache.ttl
+                },
+                "city_cache": {
+                    "size": len(city_cache),
+                    "maxsize": city_cache.maxsize,
+                    "ttl": city_cache.ttl
+                }
+            }
+
+        @app.post("/debug/cache/clear", tags=["Debug"])
+        def clear_cache():
+            """Limpa todos os caches"""
+            search_cache.clear()
+            city_cache.clear()
+            logger.info("Cache limpo")
+            return {"status": "success", "message": "Cache limpo com sucesso"}
 
         return app
 
 # --- Inicialização do App ---
+# Executa a verificação da base de conhecimento na inicialização
+try:
+    ensure_knowledge_base_startup()
+    logger.info("✅ Base de conhecimento inicializada com sucesso")
+except Exception as e:
+    logger.error(f"❌ Falha ao inicializar base de conhecimento: {e}")
+    logger.warning("Continuando execução, mas a base de conhecimento pode estar vazia")
+
+# Cria diretório de configuração se não existir
+os.makedirs("config", exist_ok=True)
+
+# Salva configuração de cidades se não existir
+cities_file = "config/cidades.json"
+if not os.path.exists(cities_file):
+    try:
+        with open(cities_file, 'w', encoding='utf-8') as f:
+            json.dump(AppConfig.load_valid_cities(), f, indent=2, ensure_ascii=False)
+        logger.info(f"Arquivo de configuração de cidades criado: {cities_file}")
+    except Exception as e:
+        logger.error(f"Erro ao criar arquivo de configuração de cidades: {e}")
+
 playground_app = CustomPlayground(agents=[alice_agent])
 app = playground_app.get_app()
 
 if __name__ == "__main__":
-    playground_app.serve("playground:app", reload=True)
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    logger.info(f"Iniciando servidor na porta {port}")
+    uvicorn.run("playground:app", host="0.0.0.0", port=port, reload=False)

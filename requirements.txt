@@ -1,32 +1,26 @@
-# Agno Framework - Dependências principais
-agno>=1.7.6
+# Dependências originais
+fastapi
+uvicorn
+python-dotenv
+pydantic
+agno
+openai
 
-# Web Framework
-fastapi>=0.104.1
-uvicorn[standard]>=0.24.0
+# Dependências adicionais para melhorias
+slowapi
+cachetools
+tenacity
 
-# AI Models
-openai>=1.12.0
-google-generativeai>=0.8.0
+# Dependências para logging estruturado (opcional)
+structlog
 
-# HTTP Requests
-requests>=2.31.0
+# Dependências para processamento de texto avançado (opcional)
+spacy
+nltk
 
-# Database
-sqlalchemy>=2.0.0
+# Dependências para PostgreSQL com pgvector (para migração futura)
+psycopg2-binary
+pgvector
 
-# Search Tools (opcional - se usar agno.tools.duckduckgo)
-duckduckgo-search>=6.2.0
-
-# Utilities
-python-dotenv>=1.0.0
-pydantic>=2.5.0
-
-# Logs e monitoramento
-python-json-logger>=2.0.0
-
-# HTTP Requests internos (já incluído no Python, mas explícito para documentação)
-# urllib3>=2.0.0  # Já incluído no Python padrão
-
-# Database (SQLite já incluído no Python)
-# sqlite3 # Já incluído no Python padrão
+# Dependências para Elasticsearch (para migração futura)
+elasticsearch

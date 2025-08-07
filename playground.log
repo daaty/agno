@@ -1,0 +1,19 @@
+2025-08-07 04:25:47,940 - __main__ - INFO - [STARTUP] Base de conhecimento RAG via pgvector será usada. Nenhuma inicialização local necessária.
+2025-08-07 04:25:48,189 - __main__ - INFO - Iniciando servidor na porta 8000
+2025-08-07 04:25:48,321 - playground - INFO - [STARTUP] Base de conhecimento RAG via pgvector será usada. Nenhuma inicialização local necessária.
+2025-08-07 04:30:57,054 - playground - INFO - [STARTUP] Base de conhecimento RAG via pgvector será usada. Nenhuma inicialização local necessária.
+2025-08-07 04:32:37,730 - playground - INFO - Requisição recebida - Agent: Alice, Session: teste1
+2025-08-07 04:32:37,732 - playground - INFO - Cidades carregadas do arquivo config/cidades.json: ['Matupa', 'Matupa', 'Guaranta', 'Guaranta', 'Guaranta', 'Peixoto', 'Peixoto', 'Monte Verde', 'Monte Verde', 'Bandeirantes', 'Alta Floresta', 'Nova Canaa', 'Nova Canaa', 'Nova Canaa', 'Nova Canaa', 'Colider', 'Colider']
+2025-08-07 04:32:39,284 - playground - INFO - [MEMORY] Categoria extraída automaticamente: 'Passageiro' para sessão teste1
+2025-08-07 04:32:41,643 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-08-07 04:32:41,662 - playground - INFO - [RAG] busca_knowledge_base_tool chamado com query=EAR na habilitação
+2025-08-07 04:32:42,185 - KnowledgeRetriever - ERROR - Erro ao buscar documentos: operator does not exist: vector <-> numeric[]
+LINE 2:             SELECT id, text, metadata, embedding <-> ARRAY[0...
+                                                         ^
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+
+2025-08-07 04:32:43,155 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-08-07 04:32:43,163 - playground - INFO - busca_duckduckgo_tool chamado com query=EAR na habilitação
+2025-08-07 04:32:45,864 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-08-07 04:32:46,791 - httpx - INFO - HTTP Request: POST https://api.agno.com/v1/telemetry/agent/run/create "HTTP/1.1 200 OK"
+2025-08-07 04:32:46,792 - playground - INFO - Requisição processada em 9.06s
